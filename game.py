@@ -21,11 +21,17 @@ MAP_HEIGHT = 45
 #@+node:peckj.20130917090235.2667: *3* color scheme
 # color scheme
 color_dark_wall = libtcod.Color(0, 0, 100)
+color_light_wall = libtcod.Color(130, 110, 50)
 color_dark_ground = libtcod.Color(50, 50, 150)
+color_light_ground = libtcod.Color(200, 180, 50)
 #@+node:peckj.20130917090235.2677: *3* dungeon generation
 ROOM_MAX_SIZE = 10
 ROOM_MIN_SIZE = 6
 MAX_ROOMS = 30
+#@+node:peckj.20130917090235.2678: *3* fov stuff
+FOV_ALGO = libtcod.FOV_DIAMOND
+FOV_LIGHT_WALLS = True
+TORCH_RADIUS = 10
 #@-others
 #@-<< definitions >>
 
@@ -58,6 +64,7 @@ class Tile:
   #@+others
   #@+node:peckj.20130917090235.2660: *4* __init__
   def __init__(self, blocked, block_sight = None):
+    self.explored = False
     self.blocked = blocked
     
     #by default, if a tile is blocked, it also blocks sight
@@ -133,16 +140,33 @@ def make_map():
       
 #@+node:peckj.20130917090235.2663: *3* render_all
 def render_all():
+  global fov_recompute, fov_map
+  
+  if fov_recompute:
+    #recompute FOV if needed (the player moved or something)
+    fov_recompute = False
+    libtcod.map_compute_fov(fov_map, player.x, player.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO)
+  
   for object in objects:
-    object.draw()
+    if libtcod.map_is_in_fov(fov_map, object.x, object.y):
+      object.draw()
   
   for y in range(MAP_HEIGHT):
     for x in range(MAP_WIDTH):
+      visible = libtcod.map_is_in_fov(fov_map, x, y)
       wall = map[x][y].block_sight
-      if wall:
-        libtcod.console_set_char_background(con, x, y, color_dark_wall, libtcod.BKGND_SET )
+      if not visible:
+        if map[x][y].explored:
+          if wall:
+            libtcod.console_set_char_background(con, x, y, color_dark_wall, libtcod.BKGND_SET)
+          else:
+            libtcod.console_set_char_background(con, x, y, color_dark_ground, libtcod.BKGND_SET)
       else:
-        libtcod.console_set_char_background(con, x, y, color_dark_ground, libtcod.BKGND_SET )
+        if wall:
+          libtcod.console_set_char_background(con, x, y, color_light_wall, libtcod.BKGND_SET)
+        else:
+          libtcod.console_set_char_background(con, x, y, color_light_ground, libtcod.BKGND_SET)
+        map[x][y].explored = True
   
   libtcod.console_blit(con, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, 0, 0)
 #@+node:peckj.20130917090235.2671: *3* create_room
@@ -164,29 +188,9 @@ def create_v_tunnel(y1, y2, x):
   for y in range(min(y1, y2), max(y1, y2) + 1):
     map[x][y].blocked = False
     map[x][y].block_sight = False
-#@+node:peckj.20130917090235.2651: ** setup
-# set custom font
-libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
-
-# initialize the window
-libtcod.console_init_root(SCREEN_WIDTH, SCREEN_HEIGHT, 'libtcod tutorial', False)
-
-# off-screen console
-con = libtcod.console_new(SCREEN_WIDTH, SCREEN_HEIGHT)
-
-# set FPS
-libtcod.sys_set_fps(LIMIT_FPS)
-
-# game objects
-player = Object(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, '@', libtcod.white)
-objects = [player]
-
-
-player.x = 25
-player.y = 23
-#@+node:peckj.20130917090235.2653: ** handle_keys
+#@+node:peckj.20130917090235.2653: *3* handle_keys
 def handle_keys():
-  global playerx, playery
+  global fov_recompute
   
   # real-time games: check_for_keypress is non-blocking
   # key = libtcod.console_check_for_keypress()
@@ -203,18 +207,48 @@ def handle_keys():
   # movement keys
   if libtcod.console_is_key_pressed(libtcod.KEY_UP):
     player.move(0,-1)
+    fov_recompute = True
     
   elif libtcod.console_is_key_pressed(libtcod.KEY_DOWN):
     player.move(0,1)
+    fov_recompute = True
 
   elif libtcod.console_is_key_pressed(libtcod.KEY_LEFT):
     player.move(-1,0)
+    fov_recompute = True
     
   elif libtcod.console_is_key_pressed(libtcod.KEY_RIGHT):
     player.move(1,0)
-#@+node:peckj.20130917090235.2652: ** main loop
-make_map()
+    fov_recompute = True
+#@+node:peckj.20130917090235.2651: ** setup
+# set custom font
+libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
 
+# initialize the window
+libtcod.console_init_root(SCREEN_WIDTH, SCREEN_HEIGHT, 'libtcod tutorial', False)
+
+# off-screen console
+con = libtcod.console_new(SCREEN_WIDTH, SCREEN_HEIGHT)
+
+# set FPS
+libtcod.sys_set_fps(LIMIT_FPS)
+
+# game objects
+player = Object(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, '@', libtcod.white)
+objects = [player]
+player.x = 25
+player.y = 23
+
+# make map, set fov_recompute
+make_map()
+fov_recompute = True
+
+# fov map
+fov_map = libtcod.map_new(MAP_WIDTH, MAP_HEIGHT)
+for y in range(MAP_HEIGHT):
+  for x in range(MAP_WIDTH):
+    libtcod.map_set_properties(fov_map, x, y, not map[x][y].block_sight, not map[x][y].blocked)
+#@+node:peckj.20130917090235.2652: ** main loop
 while not libtcod.console_is_window_closed():
   # update screen
   render_all()
