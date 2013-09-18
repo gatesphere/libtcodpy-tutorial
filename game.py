@@ -6,6 +6,7 @@
 #@+node:peckj.20130917090235.2649: ** << imports >>
 import libtcodpy as libtcod
 import math
+import textwrap
 #@-<< imports >>
 #@+<< definitions >>
 #@+node:peckj.20130917090235.2650: ** << definitions >>
@@ -18,7 +19,7 @@ LIMIT_FPS = 20
 #@+node:peckj.20130917090235.2669: *3* map size
 # Map size
 MAP_WIDTH = 80
-MAP_HEIGHT = 45
+MAP_HEIGHT = 43
 #@+node:peckj.20130917090235.2667: *3* color scheme
 # color scheme
 color_dark_wall = libtcod.Color(0, 0, 100)
@@ -35,6 +36,14 @@ MAX_ROOM_MONSTERS = 3
 FOV_ALGO = libtcod.FOV_DIAMOND
 FOV_LIGHT_WALLS = True
 TORCH_RADIUS = 10
+#@+node:peckj.20130918082920.2698: *3* panel stuff
+BAR_WIDTH = 20
+PANEL_HEIGHT = 7
+PANEL_Y = SCREEN_HEIGHT - PANEL_HEIGHT
+#@+node:peckj.20130918082920.2699: *3* message_bar stuff
+MSG_X = BAR_WIDTH + 2
+MSG_WIDTH = SCREEN_WIDTH - BAR_WIDTH - 2
+MSG_HEIGHT = PANEL_HEIGHT - 2
 #@-others
 #@-<< definitions >>
 
@@ -153,10 +162,10 @@ class Fighter:
   def attack(self, target):
     damage = self.power - target.fighter.defense
     if damage > 0:
-      print self.owner.name.capitalize() + ' attacks ' + target.name + ' for ' + str(damage) + ' hit points.'
+      message(self.owner.name.capitalize() + ' attacks ' + target.name + ' for ' + str(damage) + ' hit points.')
       target.fighter.take_damage(damage)
     else:
-      print self.owner.name.capitalize() + ' attacks ' + target.name + ' but it has no effect!'
+      message(self.owner.name.capitalize() + ' attacks ' + target.name + ' but it has no effect!')
   #@-others
 #@+node:peckj.20130918082920.2688: *3* BasicMonster class
 class BasicMonster:
@@ -246,12 +255,32 @@ def render_all():
         else:
           libtcod.console_set_char_background(con, x, y, color_light_ground, libtcod.BKGND_SET)
         map[x][y].explored = True
-
-  libtcod.console_set_default_foreground(con, libtcod.white)
-  libtcod.console_print_ex(con, 1, SCREEN_HEIGHT - 2, libtcod.BKGND_NONE, libtcod.LEFT,
-                           'HP: ' +  str(player.fighter.hp) + '/'+ str(player.fighter.max_hp))
   
-  libtcod.console_blit(con, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, 0, 0)
+  libtcod.console_blit(con, 0, 0, MAP_WIDTH, MAP_HEIGHT, 0, 0, 0)
+
+  libtcod.console_set_default_background(panel, libtcod.black)
+  libtcod.console_clear(panel)
+  render_bar(1, 1, BAR_WIDTH, 'HP', player.fighter.hp, player.fighter.max_hp, libtcod.light_red, libtcod.darker_red)
+  y = 1
+  for (line, color) in game_msgs:
+    libtcod.console_set_default_foreground(panel, color)
+    libtcod.console_print_ex(panel, MSG_X, y, libtcod.BKGND_NONE, libtcod.LEFT, line)
+    y += 1
+  libtcod.console_set_default_foreground(panel, libtcod.light_gray)
+  libtcod.console_print_ex(panel, 1, 0, libtcod.BKGND_NONE, libtcod.LEFT, get_names_under_mouse())
+  
+  libtcod.console_blit(panel, 0, 0, SCREEN_WIDTH, PANEL_HEIGHT, 0, 0, PANEL_Y)
+#@+node:peckj.20130918082920.2697: *3* render_bar
+def render_bar(x, y, total_width, name, value, maximum, bar_color, back_color):
+  bar_width = int(float(value) / maximum * total_width)
+  libtcod.console_set_default_background(panel, back_color)
+  libtcod.console_rect(panel, x, y, total_width, 1, False, libtcod.BKGND_SCREEN)
+  libtcod.console_set_default_background(panel, bar_color)
+  if bar_width > 0:
+    libtcod.console_rect(panel, x, y, bar_width, 1, False, libtcod.BKGND_SCREEN)
+  libtcod.console_set_default_foreground(panel, libtcod.white)
+  libtcod.console_print_ex(panel, x + total_width / 2, y, libtcod.BKGND_NONE, libtcod.CENTER,
+                           name + ': ' + str(value) + '/' + str(maximum))
 #@+node:peckj.20130917090235.2671: *3* create_room
 def create_room(room):
   global map
@@ -273,13 +302,8 @@ def create_v_tunnel(y1, y2, x):
     map[x][y].block_sight = False
 #@+node:peckj.20130917090235.2653: *3* handle_keys
 def handle_keys():
-  global fov_recompute
-  
-  # real-time games: check_for_keypress is non-blocking
-  # key = libtcod.console_check_for_keypress()
-  
-  # turn-based games: wait_for_keypress is blocking
-  key = libtcod.console_wait_for_keypress(True)
+  global fov_recompute, key
+
   if key.vk == libtcod.KEY_ENTER and key.lalt:
     # lalt+enter = fullscreen
     libtcod.console_set_fullscreen(not libtcod.console_is_fullscreen())
@@ -289,20 +313,27 @@ def handle_keys():
     
   if game_state == 'playing':
     # movement keys
-    if libtcod.console_is_key_pressed(libtcod.KEY_UP):
+    if key.vk == libtcod.KEY_UP:
       player_move_or_attack(0, -1)
       
-    elif libtcod.console_is_key_pressed(libtcod.KEY_DOWN):
+    elif key.vk == libtcod.KEY_DOWN:
       player_move_or_attack(0, 1)
   
-    elif libtcod.console_is_key_pressed(libtcod.KEY_LEFT):
+    elif key.vk == libtcod.KEY_LEFT:
       player_move_or_attack(-1, 0)
       
-    elif libtcod.console_is_key_pressed(libtcod.KEY_RIGHT):
+    elif key.vk == libtcod.KEY_RIGHT:
       player_move_or_attack(1, 0)
     
     else:
       return 'didnt-take-turn'
+#@+node:peckj.20130918082920.2701: *3* get_names_under_mouse
+def get_names_under_mouse():
+  global mouse
+  (x, y) = (mouse.cx, mouse.cy)
+  names = [obj.name for obj in objects if obj.x == x and obj.y == y and libtcod.map_is_in_fov(fov_map, obj.x, obj.y)]
+  names = ', '.join(names)
+  return names.capitalize()
 #@+node:peckj.20130917203359.2679: *3* place_objects
 def place_objects(room):
   #choose random number of monsters
@@ -358,14 +389,14 @@ def player_move_or_attack(dx, dy):
 #@+node:peckj.20130918082920.2694: *3* player_death
 def player_death(player):
   global game_state
-  print 'You died!'
+  message('You died!', libtcod.red)
   game_state = 'dead'
   
   player.char = '%'
   player.color = libtcod.dark_red
 #@+node:peckj.20130918082920.2695: *3* monster_death
 def monster_death(monster):
-  print monster.name.capitalize() + ' is dead!'
+  message(monster.name.capitalize() + ' is dead!', libtcod.orange)
   monster.char = '%'
   monster.color = libtcod.dark_red
   monster.blocks = False
@@ -373,6 +404,14 @@ def monster_death(monster):
   monster.ai = None
   monster.name = 'remains of ' + monster.name
   monster.send_to_back()
+#@+node:peckj.20130918082920.2700: *3* message
+def message(new_msg, color=libtcod.white):
+  new_msg_lines = textwrap.wrap(new_msg, MSG_WIDTH)
+  for line in new_msg_lines:
+    if len(game_msgs) == MSG_HEIGHT:
+      del game_msgs[0]
+    game_msgs.append((line, color))
+    
 #@+node:peckj.20130917090235.2651: ** setup
 # set custom font
 libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
@@ -380,8 +419,9 @@ libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | 
 # initialize the window
 libtcod.console_init_root(SCREEN_WIDTH, SCREEN_HEIGHT, 'libtcod tutorial', False)
 
-# off-screen console
-con = libtcod.console_new(SCREEN_WIDTH, SCREEN_HEIGHT)
+# off-screen consoles
+con = libtcod.console_new(MAP_WIDTH, MAP_HEIGHT)
+panel = libtcod.console_new(SCREEN_WIDTH, PANEL_HEIGHT)
 
 # set FPS
 libtcod.sys_set_fps(LIMIT_FPS)
@@ -406,9 +446,18 @@ for y in range(MAP_HEIGHT):
 # game state
 game_state = 'playing'
 player_action = None
+
+# messages
+game_msgs = []
+message('Welcome stranger! Prepare to parish in the Tombs of the Ancient Kings.', libtcod.red)
+
+# set up mouse and keyboard
+mouse = libtcod.Mouse()
+key = libtcod.Key()
 #@+node:peckj.20130917090235.2652: ** main loop
 while not libtcod.console_is_window_closed():
   # update screen
+  libtcod.sys_check_for_event(libtcod.EVENT_KEY_PRESS|libtcod.EVENT_MOUSE, key, mouse)
   render_all()
   libtcod.console_flush()
   
