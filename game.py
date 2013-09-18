@@ -5,6 +5,7 @@
 #@+<< imports >>
 #@+node:peckj.20130917090235.2649: ** << imports >>
 import libtcodpy as libtcod
+import math
 #@-<< imports >>
 #@+<< definitions >>
 #@+node:peckj.20130917090235.2650: ** << definitions >>
@@ -43,13 +44,21 @@ TORCH_RADIUS = 10
 class Object:
   #@+others
   #@+node:peckj.20130917090235.2655: *4* __init__
-  def __init__(self, x, y, char, name, color, blocks=False):
+  def __init__(self, x, y, char, name, color, blocks=False, fighter=None, ai=None):
     self.blocks = blocks
     self.name = name
     self.x = x
     self.y = y
     self.char = char
     self.color = color
+    
+    self.fighter = fighter
+    if self.fighter:
+      self.fighter.owner = self
+      
+    self.ai = ai
+    if self.ai:
+      self.ai.owner = self
   #@+node:peckj.20130917090235.2656: *4* move
   def move(self, dx, dy):
     newx = self.x + dx
@@ -57,10 +66,34 @@ class Object:
     if not is_blocked(newx, newy):
       self.x = newx
       self.y = newy
+  #@+node:peckj.20130918082920.2690: *4* move_towards
+  def move_towards(self, target_x, target_y):
+    # vector from this object to the target, and distance
+    dx = target_x - self.x
+    dy = target_y - self.y
+    distance = math.sqrt(dx ** 2 + dy ** 2)
+    
+    # normalize it to length 1 (preserving direction) then
+    # round and convert to an integer
+    dx = int(round(dx/distance))
+    dy = int(round(dy/distance))
+    self.move(dx, dy)
+  #@+node:peckj.20130918082920.2691: *4* distance_to
+  def distance_to(self, other):
+    # return the distance to another object
+    dx = other.x - self.x
+    dy = other.y - self.y
+    return math.sqrt(dx ** 2 + dy ** 2)
+  #@+node:peckj.20130918082920.2696: *4* send_to_back
+  def send_to_back(self):
+    global objects
+    objects.remove(self)
+    objects.insert(0, self)
   #@+node:peckj.20130917090235.2657: *4* draw
   def draw(self):
-    libtcod.console_set_default_foreground(con, self.color)
-    libtcod.console_put_char(con, self.x, self.y, self.char, libtcod.BKGND_NONE)
+    if libtcod.map_is_in_fov(fov_map, self.x, self.y):
+      libtcod.console_set_default_foreground(con, self.color)
+      libtcod.console_put_char(con, self.x, self.y, self.char, libtcod.BKGND_NONE)
   #@+node:peckj.20130917090235.2658: *4* clear
   def clear(self):
     libtcod.console_put_char(con, self.x, self.y, ' ', libtcod.BKGND_NONE)
@@ -98,6 +131,46 @@ class Rect:
     return (self.x1 <= other.x2 and self.x2 >= other.x1 and
             self.y1 <= other.y2 and self.y2 >= other.y1)
   #@-others
+#@+node:peckj.20130918082920.2686: *3* Fighter class
+class Fighter:
+  #@+others
+  #@+node:peckj.20130918082920.2687: *4* __init__
+  def __init__(self, hp, defense, power, death_function=None):
+    self.max_hp = hp
+    self.hp = hp
+    self.defense = defense
+    self.power = power
+    self.death_function = death_function
+  #@+node:peckj.20130918082920.2692: *4* take_damage
+  def take_damage(self, damage):
+    if damage > 0:
+      self.hp -= damage
+    if self.hp <= 0:
+      function = self.death_function
+      if function is not None:
+        function(self.owner)
+  #@+node:peckj.20130918082920.2693: *4* attack
+  def attack(self, target):
+    damage = self.power - target.fighter.defense
+    if damage > 0:
+      print self.owner.name.capitalize() + ' attacks ' + target.name + ' for ' + str(damage) + ' hit points.'
+      target.fighter.take_damage(damage)
+    else:
+      print self.owner.name.capitalize() + ' attacks ' + target.name + ' but it has no effect!'
+  #@-others
+#@+node:peckj.20130918082920.2688: *3* BasicMonster class
+class BasicMonster:
+  #@+others
+  #@+node:peckj.20130918082920.2689: *4* take_turn
+  def take_turn(self):
+    monster = self.owner
+    if libtcod.map_is_in_fov(fov_map, monster.x, monster.y):
+      if monster.distance_to(player) >= 2:
+        monster.move_towards(player.x, player.y)
+      elif player.fighter.hp > 0:
+        monster.fighter.attack(player)
+  #@-others
+  
 #@+node:peckj.20130917090235.2666: ** helper functions
 #@+node:peckj.20130917090235.2662: *3* make_map
 # make the map
@@ -153,8 +226,9 @@ def render_all():
     libtcod.map_compute_fov(fov_map, player.x, player.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO)
   
   for object in objects:
-    if libtcod.map_is_in_fov(fov_map, object.x, object.y):
+    if object != player:
       object.draw()
+  player.draw()
   
   for y in range(MAP_HEIGHT):
     for x in range(MAP_WIDTH):
@@ -172,6 +246,10 @@ def render_all():
         else:
           libtcod.console_set_char_background(con, x, y, color_light_ground, libtcod.BKGND_SET)
         map[x][y].explored = True
+
+  libtcod.console_set_default_foreground(con, libtcod.white)
+  libtcod.console_print_ex(con, 1, SCREEN_HEIGHT - 2, libtcod.BKGND_NONE, libtcod.LEFT,
+                           'HP: ' +  str(player.fighter.hp) + '/'+ str(player.fighter.max_hp))
   
   libtcod.console_blit(con, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, 0, 0)
 #@+node:peckj.20130917090235.2671: *3* create_room
@@ -238,10 +316,14 @@ def place_objects(room):
     if not is_blocked(x, y):
       if libtcod.random_get_int(0, 0, 100) < 80:  #80% chance of getting an orc
         #create an orc
-        monster = Object(x, y, 'o', 'orc', libtcod.desaturated_green, blocks=True)
+        fighter_component = Fighter(hp=10, defense=0, power=3, death_function=monster_death)
+        ai_component = BasicMonster()
+        monster = Object(x, y, 'o', 'orc', libtcod.desaturated_green, blocks=True, fighter=fighter_component, ai=ai_component)
       else:
         #create a troll
-        monster = Object(x, y, 'T', 'troll', libtcod.darker_green, blocks=True)
+        fighter_component = Fighter(hp=16, defense=1, power=4, death_function=monster_death)
+        ai_component = BasicMonster()
+        monster = Object(x, y, 'T', 'troll', libtcod.darker_green, blocks=True, fighter=fighter_component, ai=ai_component)
   
       objects.append(monster)
 #@+node:peckj.20130917203908.2680: *3* is_blocked
@@ -263,16 +345,34 @@ def player_move_or_attack(dx, dy):
   # try to find an attackable object there
   target = None
   for object in objects:
-    if object.x == x and object.y == y:
+    if object.fighter and object.x == x and object.y == y:
       target = object
       break
 
   # attack if target found, move otherwise
   if target is not None:
-    print 'The ' + target.name + ' laughs at your puny efforts to attack him!'
+    player.fighter.attack(target)
   else:
     player.move(dx, dy)
     fov_recompute = True
+#@+node:peckj.20130918082920.2694: *3* player_death
+def player_death(player):
+  global game_state
+  print 'You died!'
+  game_state = 'dead'
+  
+  player.char = '%'
+  player.color = libtcod.dark_red
+#@+node:peckj.20130918082920.2695: *3* monster_death
+def monster_death(monster):
+  print monster.name.capitalize() + ' is dead!'
+  monster.char = '%'
+  monster.color = libtcod.dark_red
+  monster.blocks = False
+  monster.fighter = None
+  monster.ai = None
+  monster.name = 'remains of ' + monster.name
+  monster.send_to_back()
 #@+node:peckj.20130917090235.2651: ** setup
 # set custom font
 libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
@@ -287,7 +387,8 @@ con = libtcod.console_new(SCREEN_WIDTH, SCREEN_HEIGHT)
 libtcod.sys_set_fps(LIMIT_FPS)
 
 # game objects
-player = Object(0, 0, '@', 'player', libtcod.white, blocks=True)
+fighter_component = Fighter(hp=30, defense=2, power=5, death_function=player_death)
+player = Object(0, 0, '@', 'player', libtcod.white, blocks=True, fighter=fighter_component)
 objects = [player]
 player.x = 25
 player.y = 23
@@ -323,7 +424,7 @@ while not libtcod.console_is_window_closed():
   #let monsters take their turn
   if game_state == 'playing' and player_action != 'didnt-take-turn':
     for object in objects:
-      if object != player:
-        print 'The ' + object.name + ' growls!'
+      if object.ai:
+        object.ai.take_turn()
 #@-others
 #@-leo
