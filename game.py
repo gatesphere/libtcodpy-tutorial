@@ -61,6 +61,13 @@ CONFUSE_RANGE = 8
 
 FIREBALL_DAMAGE = 12
 FIREBALL_RADIUS = 3
+#@+node:peckj.20130918082920.2742: *3* character advancement
+LEVEL_UP_BASE = 200
+LEVEL_UP_FACTOR = 150
+
+LEVEL_SCREEN_WIDTH = 40
+
+CHARACTER_SCREEN_WIDTH = 30
 #@-others
 #@-<< definitions >>
 
@@ -70,13 +77,14 @@ FIREBALL_RADIUS = 3
 class Object:
   #@+others
   #@+node:peckj.20130917090235.2655: *4* __init__
-  def __init__(self, x, y, char, name, color, blocks=False, fighter=None, ai=None, item=None):
+  def __init__(self, x, y, char, name, color, blocks=False, always_visible=False, fighter=None, ai=None, item=None):
     self.blocks = blocks
     self.name = name
     self.x = x
     self.y = y
     self.char = char
     self.color = color
+    self.always_visible = always_visible
     
     self.fighter = fighter
     if self.fighter:
@@ -124,7 +132,7 @@ class Object:
     objects.insert(0, self)
   #@+node:peckj.20130917090235.2657: *4* draw
   def draw(self):
-    if libtcod.map_is_in_fov(fov_map, self.x, self.y):
+    if libtcod.map_is_in_fov(fov_map, self.x, self.y) or (self.always_visible and map[self.x][self.y].explored):
       libtcod.console_set_default_foreground(con, self.color)
       libtcod.console_put_char(con, self.x, self.y, self.char, libtcod.BKGND_NONE)
   #@+node:peckj.20130917090235.2658: *4* clear
@@ -168,11 +176,12 @@ class Rect:
 class Fighter:
   #@+others
   #@+node:peckj.20130918082920.2687: *4* __init__
-  def __init__(self, hp, defense, power, death_function=None):
+  def __init__(self, hp, defense, power, xp, death_function=None):
     self.max_hp = hp
     self.hp = hp
     self.defense = defense
     self.power = power
+    self.xp = xp
     self.death_function = death_function
   #@+node:peckj.20130918082920.2692: *4* take_damage
   def take_damage(self, damage):
@@ -182,6 +191,8 @@ class Fighter:
       function = self.death_function
       if function is not None:
         function(self.owner)
+      if self.owner != player:
+        player.fighter.xp += self.xp
   #@+node:peckj.20130918082920.2693: *4* attack
   def attack(self, target):
     damage = self.power - target.fighter.defense
@@ -261,7 +272,7 @@ class Item:
 #@+node:peckj.20130917090235.2662: *4* make_map
 # make the map
 def make_map():
-  global map, objects
+  global map, objects, stairs
   
   objects = [player]
   
@@ -303,7 +314,10 @@ def make_map():
           create_h_tunnel(prev_x, new_x, new_y)
       rooms.append(new_room)
       num_rooms += 1
-      
+  
+  stairs = Object(new_x, new_y, '<', 'stairs', libtcod.white, always_visible=True)
+  objects.append(stairs)
+  stairs.send_to_back()
 #@+node:peckj.20130917090235.2671: *4* create_room
 def create_room(room):
   global map
@@ -336,12 +350,12 @@ def place_objects(room):
     if not is_blocked(x, y):
       if libtcod.random_get_int(0, 0, 100) < 80:  #80% chance of getting an orc
         #create an orc
-        fighter_component = Fighter(hp=10, defense=0, power=3, death_function=monster_death)
+        fighter_component = Fighter(hp=10, defense=0, power=3, xp=35, death_function=monster_death)
         ai_component = BasicMonster()
         monster = Object(x, y, 'o', 'orc', libtcod.desaturated_green, blocks=True, fighter=fighter_component, ai=ai_component)
       else:
         #create a troll
-        fighter_component = Fighter(hp=16, defense=1, power=4, death_function=monster_death)
+        fighter_component = Fighter(hp=16, defense=1, power=4, xp=100, death_function=monster_death)
         ai_component = BasicMonster()
         monster = Object(x, y, 'T', 'troll', libtcod.darker_green, blocks=True, fighter=fighter_component, ai=ai_component)
   
@@ -355,16 +369,16 @@ def place_objects(room):
       dice = libtcod.random_get_int(0, 0, 100)
       if dice < 70:
         item_component = Item(use_function=cast_heal)
-        item = Object(x, y, '!', 'healing potion', libtcod.violet, item=item_component)
+        item = Object(x, y, '!', 'healing potion', libtcod.violet, item=item_component, always_visible=True)
       elif dice < 70+10:
         item_component = Item(use_function=cast_lightning)
-        item = Object(x, y, '#', 'scroll of lightning bolt', libtcod.light_yellow, item=item_component)
+        item = Object(x, y, '#', 'scroll of lightning bolt', libtcod.light_yellow, item=item_component, always_visible=True)
       elif dice < 70+10+10:
         item_component = Item(use_function=cast_fireball)
-        item = Object(x, y, '#', 'scroll of fireball', libtcod.light_yellow, item=item_component)
+        item = Object(x, y, '#', 'scroll of fireball', libtcod.light_yellow, item=item_component, always_visible=True)
       else:
         item_component = Item(use_function=cast_confuse)
-        item = Object(x, y, '#', 'scroll of confusion', libtcod.light_yellow, item=item_component)
+        item = Object(x, y, '#', 'scroll of confusion', libtcod.light_yellow, item=item_component, always_visible=True)
         
       objects.append(item)
       item.send_to_back()
@@ -406,6 +420,7 @@ def render_all():
   libtcod.console_clear(panel)
   render_bar(1, 1, BAR_WIDTH, 'HP', player.fighter.hp, player.fighter.max_hp, libtcod.light_red, libtcod.darker_red)
   y = 1
+  libtcod.console_print_ex(panel, 1, 3, libtcod.BKGND_NONE, libtcod.LEFT, 'Dungeon level ' + str(dungeon_level))
   for (line, color) in game_msgs:
     libtcod.console_set_default_foreground(panel, color)
     libtcod.console_print_ex(panel, MSG_X, y, libtcod.BKGND_NONE, libtcod.LEFT, line)
@@ -538,7 +553,7 @@ def cast_fireball():
 #@+node:peckj.20130918082920.2717: *3* ai
 #@+node:peckj.20130918082920.2695: *4* monster_death
 def monster_death(monster):
-  message(monster.name.capitalize() + ' is dead!', libtcod.orange)
+  message(monster.name.capitalize() + ' is dead! You gain ' + str(monster.fighter.xp) + ' experience points.', libtcod.orange)
   monster.char = '%'
   monster.color = libtcod.dark_red
   monster.blocks = False
@@ -618,17 +633,24 @@ def handle_keys():
     
   if game_state == 'playing':
     # movement keys
-    if key.vk == libtcod.KEY_UP:
+    if key.vk == libtcod.KEY_UP or key.vk == libtcod.KEY_KP8:
       player_move_or_attack(0, -1)
-      
-    elif key.vk == libtcod.KEY_DOWN:
+    elif key.vk == libtcod.KEY_DOWN or key.vk == libtcod.KEY_KP2:
       player_move_or_attack(0, 1)
-  
-    elif key.vk == libtcod.KEY_LEFT:
+    elif key.vk == libtcod.KEY_LEFT or key.vk == libtcod.KEY_KP4:
       player_move_or_attack(-1, 0)
-      
-    elif key.vk == libtcod.KEY_RIGHT:
+    elif key.vk == libtcod.KEY_RIGHT or key.vk == libtcod.KEY_KP6:
       player_move_or_attack(1, 0)
+    elif key.vk == libtcod.KEY_HOME or key.vk == libtcod.KEY_KP7:
+      player_move_or_attack(-1, -1)
+    elif key.vk == libtcod.KEY_PAGEUP or key.vk == libtcod.KEY_KP9:
+      player_move_or_attack(1, -1)
+    elif key.vk == libtcod.KEY_END or key.vk == libtcod.KEY_KP1:
+      player_move_or_attack(-1, 1)
+    elif key.vk == libtcod.KEY_PAGEDOWN or key.vk == libtcod.KEY_KP3:
+      player_move_or_attack(1, 1)
+    elif key.vk == libtcod.KEY_KP5:
+      pass  #do nothing ie wait for the monster to come to you
     
     else:
       # test for other keys
@@ -646,6 +668,14 @@ def handle_keys():
         chosen_item = inventory_menu('Press the key next to an item to drop it, or any other to cancel.\n')
         if chosen_item is not None:
           chosen_item.drop()
+      if key_char == '<':
+        if stairs.x == player.x and stairs.y == player.y:
+          next_level()
+      if key_char == 'c':
+        level_up_xp = LEVEL_UP_BASE + player.level * LEVEL_UP_FACTOR
+        msgbox('Character Information\n\nLevel: ' + str(player.level) + '\nExperience: ' + str(player.fighter.xp) +
+               '\nExperience to level up: ' + str(level_up_xp) + '\n\nMaximum HP: ' + str(player.fighter.max_hp) +
+               '\nAttack: ' + str(player.fighter.power) + '\nDefense: ' + str(player.fighter.defense), CHARACTER_SCREEN_WIDTH)
       return 'didnt-take-turn'
 #@+node:peckj.20130917203908.2681: *4* player_move_or_attack
 def player_move_or_attack(dx, dy):
@@ -671,13 +701,15 @@ def player_move_or_attack(dx, dy):
 #@+node:peckj.20130918082920.2734: *3* game loop
 #@+node:peckj.20130918082920.2732: *4* new_game
 def new_game():
-  global player, inventory, game_msgs, game_state
+  global player, inventory, game_msgs, game_state, dungeon_level
   
   # create player
-  fighter_component = Fighter(hp=30, defense=2, power=5, death_function=player_death)
+  fighter_component = Fighter(hp=30, defense=2, power=5, xp=0, death_function=player_death)
   player = Object(0, 0, '@', 'player', libtcod.white, blocks=True, fighter=fighter_component)  
+  player.level = 1
   
   # generate map
+  dungeon_level = 1
   make_map()
   
   # initialize fov
@@ -713,6 +745,7 @@ def play_game():
     render_all()
     
     libtcod.console_flush()
+    check_level_up()
     
     for object in objects:
       object.clear()
@@ -735,10 +768,12 @@ def save_game():
   file['inventory'] = inventory
   file['game_msgs'] = game_msgs
   file['game_state'] = game_state
+  file['stairs_index'] = objects.index(stairs)
+  file['dungeon_level'] = dungeon_level
   file.close()
 #@+node:peckj.20130918082920.2739: *4* load_game
 def load_game():
-  global map, objects, player, inventory, game_msgs, game_state
+  global map, objects, player, inventory, game_msgs, game_state, stairs, dungeon_level
   
   file = shelve.open('savegame', 'r')
   map = file['map']
@@ -747,9 +782,42 @@ def load_game():
   inventory = file['inventory']
   game_msgs = file['game_msgs']
   game_state = file['game_state']
+  stairs = objects[file['stairs_index']]
+  dungeon_level = file['dungeon_level']
   file.close()
   
   initialize_fov()
+#@+node:peckj.20130918082920.2741: *4* next_level
+def next_level():
+  global dungeon_level
+  message('You take a moment to rest, and recover your strength.', libtcod.light_violet)
+  player.fighter.heal(player.fighter.max_hp / 2)
+  message('After a rare moment of peace, you descend deeper into the heart of the dungeon...', libtcod.red)
+  dungeon_level += 1
+  make_map()
+  initialize_fov()
+#@+node:peckj.20130918082920.2743: *3* character advancement
+#@+node:peckj.20130918082920.2744: *4* check_level_up
+def check_level_up():
+  level_up_xp = LEVEL_UP_BASE + player.level * LEVEL_UP_FACTOR
+  if player.fighter.xp >= level_up_xp:
+    player.level += 1
+    player.fighter.xp -= level_up_xp
+    message('Your battle skills grow stronger! You reached level ' + str(player.level) + '!', libtcod.yellow)
+    
+    choice = None
+    while choice == None:
+      choice = menu('Level up! Choose a stat to raise:\n',
+        ['Constitution (+20 HP, from ' + str(player.fighter.max_hp) + ')',
+         'Strength (+1 attack, from ' + str(player.fighter.power) + ')',
+         'Agility (+1 defense, from ' + str(player.fighter.defense) + ')'], LEVEL_SCREEN_WIDTH)
+    if choice == 0:
+      player.fighter.max_hp += 20
+      player.fighter.hp += 20
+    elif choice == 1:
+      player.fighter.power += 1
+    elif choice == 2:
+      player.fighter.defense += 1
 #@+node:peckj.20130917090235.2651: ** setup
 # set custom font
 libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
