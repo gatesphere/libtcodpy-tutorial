@@ -7,6 +7,7 @@
 import libtcodpy as libtcod
 import math
 import textwrap
+import shelve
 #@-<< imports >>
 #@+<< definitions >>
 #@+node:peckj.20130917090235.2650: ** << definitions >>
@@ -48,6 +49,7 @@ MSG_HEIGHT = PANEL_HEIGHT - 2
 #@+node:peckj.20130918082920.2706: *3* inventory stuff
 INVENTORY_WIDTH = 50
 
+#@+node:peckj.20130918082920.2736: *3* spells/scrolls/items
 # spells
 HEAL_AMOUNT = 4
 
@@ -259,7 +261,9 @@ class Item:
 #@+node:peckj.20130917090235.2662: *4* make_map
 # make the map
 def make_map():
-  global map
+  global map, objects
+  
+  objects = [player]
   
   # fill map with unblocked tiles
   map = [[ Tile(True) for y in range(MAP_HEIGHT) ] for x in range(MAP_WIDTH) ]
@@ -434,6 +438,8 @@ def message(new_msg, color=libtcod.white):
 def menu(header, options, width):
   if len(options) > 26: raise ValueError('Cannot have a menu with more than 26 options.')
   header_height = libtcod.console_get_height_rect(con, 0, 0, width, SCREEN_HEIGHT, header)
+  if header == '':
+    header_height = 0
   height = len(options) + header_height
   
   window = libtcod.console_new(width, height)
@@ -454,9 +460,14 @@ def menu(header, options, width):
   
   libtcod.console_flush()
   key = libtcod.console_wait_for_keypress(True)
+  if key.vk == libtcod.KEY_ENTER and key.lalt:  #(special case) Alt+Enter: toggle fullscreen
+    libtcod.console_set_fullscreen(not libtcod.console_is_fullscreen())
   index = key.c - ord('a')
   if index >= 0 and index < len(options): return index
   return None
+#@+node:peckj.20130918082920.2740: *4* msgbox
+def msgbox(text, width=50):
+  menu(text, [], width)
 #@+node:peckj.20130918082920.2705: *4* inventory_menu
 def inventory_menu(header):
   if len(inventory) == 0:
@@ -467,6 +478,27 @@ def inventory_menu(header):
   index = menu(header, options, INVENTORY_WIDTH)
   if index is None or len(inventory) == 0: return None
   return inventory[index].item
+#@+node:peckj.20130918082920.2737: *4* main_menu
+def main_menu():
+  img = libtcod.image_load('menu_background1.png')
+  while not libtcod.console_is_window_closed():
+    libtcod.image_blit_2x(img, 0, 0, 0)
+    libtcod.console_set_default_foreground(0, libtcod.light_yellow)
+    libtcod.console_print_ex(0, SCREEN_WIDTH/2, SCREEN_HEIGHT/2-4, libtcod.BKGND_NONE, libtcod.CENTER, 'TOMBS OF THE ANCIENT KINGS')
+    libtcod.console_print_ex(0, SCREEN_WIDTH/2, SCREEN_HEIGHT-2, libtcod.BKGND_NONE, libtcod.CENTER, 'By Jake Peck (following Jotaf\'s tutorial)')
+    choice = menu('', ['Play a new game', 'Continue last game', 'Quit'], 24)
+    if choice == 0:
+      new_game()
+      play_game()
+    elif choice == 1:
+      try:
+        load_game()
+      except:
+        msgbox('\n No saved game to load.\n', 24)
+        continue
+      play_game()
+    elif choice == 2:
+      break
 #@+node:peckj.20130918082920.2716: *3* items
 #@+node:peckj.20130918082920.2711: *4* cast_heal
 def cast_heal():
@@ -636,6 +668,88 @@ def player_move_or_attack(dx, dy):
   else:
     player.move(dx, dy)
     fov_recompute = True
+#@+node:peckj.20130918082920.2734: *3* game loop
+#@+node:peckj.20130918082920.2732: *4* new_game
+def new_game():
+  global player, inventory, game_msgs, game_state
+  
+  # create player
+  fighter_component = Fighter(hp=30, defense=2, power=5, death_function=player_death)
+  player = Object(0, 0, '@', 'player', libtcod.white, blocks=True, fighter=fighter_component)  
+  
+  # generate map
+  make_map()
+  
+  # initialize fov
+  initialize_fov()
+  
+  # game state
+  game_state = 'playing'
+  inventory = []
+  
+  # messages
+  game_msgs = []
+  message('Welcome stranger! Prepare to parish in the Tomps of the Ancient Kings.', libtcod.red)
+#@+node:peckj.20130918082920.2733: *4* initialize_fov
+def initialize_fov():
+  global fov_recompute, fov_map
+  fov_recompute = True
+  
+  libtcod.console_clear(con)
+  fov_map = libtcod.map_new(MAP_WIDTH, MAP_HEIGHT)
+  for y in range(MAP_HEIGHT):
+    for x in range(MAP_WIDTH):
+      libtcod.map_set_properties(fov_map, x, y, not map[x][y].block_sight, not map[x][y].blocked)
+#@+node:peckj.20130918082920.2735: *4* play_game
+def play_game():
+  global key, mouse
+  
+  player_action = None
+  
+  mouse = libtcod.Mouse()
+  key = libtcod.Key()
+  while not libtcod.console_is_window_closed():
+    libtcod.sys_check_for_event(libtcod.EVENT_KEY_PRESS|libtcod.EVENT_MOUSE, key, mouse)
+    render_all()
+    
+    libtcod.console_flush()
+    
+    for object in objects:
+      object.clear()
+    
+    player_action = handle_keys()
+    if player_action == 'exit':
+      save_game()
+      break
+    
+    if game_state == 'playing' and player_action != 'didnt-take-turn':
+      for object in objects:
+        if object.ai:
+          object.ai.take_turn()
+#@+node:peckj.20130918082920.2738: *4* save_game
+def save_game():
+  file = shelve.open('savegame', 'n')
+  file['map'] = map
+  file['objects'] = objects
+  file['player_index'] = objects.index(player)
+  file['inventory'] = inventory
+  file['game_msgs'] = game_msgs
+  file['game_state'] = game_state
+  file.close()
+#@+node:peckj.20130918082920.2739: *4* load_game
+def load_game():
+  global map, objects, player, inventory, game_msgs, game_state
+  
+  file = shelve.open('savegame', 'r')
+  map = file['map']
+  objects = file['objects']
+  player = objects[file['player_index']]
+  inventory = file['inventory']
+  game_msgs = file['game_msgs']
+  game_state = file['game_state']
+  file.close()
+  
+  initialize_fov()
 #@+node:peckj.20130917090235.2651: ** setup
 # set custom font
 libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
@@ -649,58 +763,7 @@ panel = libtcod.console_new(SCREEN_WIDTH, PANEL_HEIGHT)
 
 # set FPS
 libtcod.sys_set_fps(LIMIT_FPS)
-
-# game objects
-fighter_component = Fighter(hp=30, defense=2, power=5, death_function=player_death)
-player = Object(0, 0, '@', 'player', libtcod.white, blocks=True, fighter=fighter_component)
-objects = [player]
-player.x = 25
-player.y = 23
-
-# make map, set fov_recompute
-make_map()
-fov_recompute = True
-
-# fov map
-fov_map = libtcod.map_new(MAP_WIDTH, MAP_HEIGHT)
-for y in range(MAP_HEIGHT):
-  for x in range(MAP_WIDTH):
-    libtcod.map_set_properties(fov_map, x, y, not map[x][y].block_sight, not map[x][y].blocked)
-
-# game state
-game_state = 'playing'
-player_action = None
-
-# messages
-game_msgs = []
-message('Welcome stranger! Prepare to parish in the Tombs of the Ancient Kings.', libtcod.red)
-
-# set up mouse and keyboard
-mouse = libtcod.Mouse()
-key = libtcod.Key()
-
-# set up inventory
-inventory = []
-#@+node:peckj.20130917090235.2652: ** main loop
-while not libtcod.console_is_window_closed():
-  # update screen
-  libtcod.sys_check_for_event(libtcod.EVENT_KEY_PRESS|libtcod.EVENT_MOUSE, key, mouse)
-  render_all()
-  libtcod.console_flush()
-  
-  # prevent @ trails (will be apparent on next update)
-  for object in objects:
-    object.clear()
-  
-  # grab keys (blocking)
-  player_action = handle_keys()
-  if player_action == 'exit':
-    break
-  
-  #let monsters take their turn
-  if game_state == 'playing' and player_action != 'didnt-take-turn':
-    for object in objects:
-      if object.ai:
-        object.ai.take_turn()
+#@+node:peckj.20130917090235.2652: ** main logic
+main_menu()
 #@-others
 #@-leo
