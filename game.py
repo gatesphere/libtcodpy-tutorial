@@ -48,7 +48,17 @@ MSG_HEIGHT = PANEL_HEIGHT - 2
 #@+node:peckj.20130918082920.2706: *3* inventory stuff
 INVENTORY_WIDTH = 50
 
+# spells
 HEAL_AMOUNT = 4
+
+LIGHTNING_DAMAGE = 20
+LIGHTNING_RANGE = 5
+
+CONFUSE_NUM_TURNS = 10
+CONFUSE_RANGE = 8
+
+FIREBALL_DAMAGE = 12
+FIREBALL_RADIUS = 3
 #@-others
 #@-<< definitions >>
 
@@ -102,6 +112,9 @@ class Object:
     dx = other.x - self.x
     dy = other.y - self.y
     return math.sqrt(dx ** 2 + dy ** 2)
+  #@+node:peckj.20130918082920.2728: *4* distance
+  def distance(self, x, y):
+    return math.sqrt((x - self.x) ** 2 + (y - self.y) ** 2)
   #@+node:peckj.20130918082920.2696: *4* send_to_back
   def send_to_back(self):
     global objects
@@ -194,6 +207,23 @@ class BasicMonster:
         monster.fighter.attack(player)
   #@-others
   
+#@+node:peckj.20130918082920.2723: *3* ConfusedMonster class
+class ConfusedMonster:
+  #@+others
+  #@+node:peckj.20130918082920.2725: *4* __init__
+  def __init__(self, old_ai, num_turns=CONFUSE_NUM_TURNS):
+    self.old_ai = old_ai
+    self.num_turns = num_turns
+  #@+node:peckj.20130918082920.2724: *4* take_turn
+  def take_turn(self):
+    if self.num_turns > 0:
+      self.owner.move(libtcod.random_get_int(0, -1, 1), libtcod.random_get_int(0, -1, 1))
+      self.num_turns -= 1
+    else:
+      self.owner.ai = self.old_ai
+      message('The ' + self.owner.name + ' is no longer confused!', libtcod.red)
+  #@-others
+  
 #@+node:peckj.20130918082920.2702: *3* Item class
 class Item:
   #@+others
@@ -208,6 +238,13 @@ class Item:
       inventory.append(self.owner)
       objects.remove(self.owner)
       message('You picked up a ' + self.owner.name + '!', libtcod.green)
+  #@+node:peckj.20130918082920.2731: *4* drop
+  def drop(self):
+    objects.append(self.owner)
+    inventory.remove(self.owner)
+    self.owner.x = player.x
+    self.owner.y = player.y
+    message('You dropped a ' + self.owner.name + '.', libtcod.yellow)
   #@+node:peckj.20130918082920.2710: *4* use
   def use(self):
     if self.use_function is None:
@@ -218,7 +255,8 @@ class Item:
   #@-others
   
 #@+node:peckj.20130917090235.2666: ** helper functions
-#@+node:peckj.20130917090235.2662: *3* make_map
+#@+node:peckj.20130918082920.2713: *3* mapping
+#@+node:peckj.20130917090235.2662: *4* make_map
 # make the map
 def make_map():
   global map
@@ -262,7 +300,72 @@ def make_map():
       rooms.append(new_room)
       num_rooms += 1
       
-#@+node:peckj.20130917090235.2663: *3* render_all
+#@+node:peckj.20130917090235.2671: *4* create_room
+def create_room(room):
+  global map
+  for x in range(room.x1 + 1, room.x2):
+    for y in range(room.y1 + 1, room.y2):
+      map[x][y].blocked = False
+      map[x][y].block_sight = False
+#@+node:peckj.20130917090235.2672: *4* create_h_tunnel
+def create_h_tunnel(x1, x2, y):
+  global map
+  for x in range(min(x1, x2), max(x1, x2) + 1):
+    map[x][y].blocked = False
+    map[x][y].block_sight = False
+#@+node:peckj.20130917090235.2674: *4* create_v_tunnel
+def create_v_tunnel(y1, y2, x):
+  global map
+  for y in range(min(y1, y2), max(y1, y2) + 1):
+    map[x][y].blocked = False
+    map[x][y].block_sight = False
+#@+node:peckj.20130917203359.2679: *4* place_objects
+def place_objects(room):
+  #choose random number of monsters
+  num_monsters = libtcod.random_get_int(0, 0, MAX_ROOM_MONSTERS)
+  
+  for i in range(num_monsters):
+    #choose random spot for this monster
+    x = libtcod.random_get_int(0, room.x1+1, room.x2-1)
+    y = libtcod.random_get_int(0, room.y1+1, room.y2-1)
+
+    if not is_blocked(x, y):
+      if libtcod.random_get_int(0, 0, 100) < 80:  #80% chance of getting an orc
+        #create an orc
+        fighter_component = Fighter(hp=10, defense=0, power=3, death_function=monster_death)
+        ai_component = BasicMonster()
+        monster = Object(x, y, 'o', 'orc', libtcod.desaturated_green, blocks=True, fighter=fighter_component, ai=ai_component)
+      else:
+        #create a troll
+        fighter_component = Fighter(hp=16, defense=1, power=4, death_function=monster_death)
+        ai_component = BasicMonster()
+        monster = Object(x, y, 'T', 'troll', libtcod.darker_green, blocks=True, fighter=fighter_component, ai=ai_component)
+  
+      objects.append(monster)
+  
+  num_items = libtcod.random_get_int(0, 0, MAX_ROOM_ITEMS)
+  for i in range(num_items):
+    x = libtcod.random_get_int(0, room.x1+1, room.x2-1)
+    y = libtcod.random_get_int(0, room.y1+1, room.y2-1)
+    if not is_blocked(x, y):
+      dice = libtcod.random_get_int(0, 0, 100)
+      if dice < 70:
+        item_component = Item(use_function=cast_heal)
+        item = Object(x, y, '!', 'healing potion', libtcod.violet, item=item_component)
+      elif dice < 70+10:
+        item_component = Item(use_function=cast_lightning)
+        item = Object(x, y, '#', 'scroll of lightning bolt', libtcod.light_yellow, item=item_component)
+      elif dice < 70+10+10:
+        item_component = Item(use_function=cast_fireball)
+        item = Object(x, y, '#', 'scroll of fireball', libtcod.light_yellow, item=item_component)
+      else:
+        item_component = Item(use_function=cast_confuse)
+        item = Object(x, y, '#', 'scroll of confusion', libtcod.light_yellow, item=item_component)
+        
+      objects.append(item)
+      item.send_to_back()
+#@+node:peckj.20130918082920.2714: *3* rendering
+#@+node:peckj.20130917090235.2663: *4* render_all
 def render_all():
   global fov_recompute, fov_map
   
@@ -307,7 +410,7 @@ def render_all():
   libtcod.console_print_ex(panel, 1, 0, libtcod.BKGND_NONE, libtcod.LEFT, get_names_under_mouse())
   
   libtcod.console_blit(panel, 0, 0, SCREEN_WIDTH, PANEL_HEIGHT, 0, 0, PANEL_Y)
-#@+node:peckj.20130918082920.2697: *3* render_bar
+#@+node:peckj.20130918082920.2697: *4* render_bar
 def render_bar(x, y, total_width, name, value, maximum, bar_color, back_color):
   bar_width = int(float(value) / maximum * total_width)
   libtcod.console_set_default_background(panel, back_color)
@@ -318,14 +421,16 @@ def render_bar(x, y, total_width, name, value, maximum, bar_color, back_color):
   libtcod.console_set_default_foreground(panel, libtcod.white)
   libtcod.console_print_ex(panel, x + total_width / 2, y, libtcod.BKGND_NONE, libtcod.CENTER,
                            name + ': ' + str(value) + '/' + str(maximum))
-#@+node:peckj.20130917090235.2671: *3* create_room
-def create_room(room):
-  global map
-  for x in range(room.x1 + 1, room.x2):
-    for y in range(room.y1 + 1, room.y2):
-      map[x][y].blocked = False
-      map[x][y].block_sight = False
-#@+node:peckj.20130918082920.2704: *3* menu
+#@+node:peckj.20130918082920.2700: *4* message
+def message(new_msg, color=libtcod.white):
+  new_msg_lines = textwrap.wrap(new_msg, MSG_WIDTH)
+  for line in new_msg_lines:
+    if len(game_msgs) == MSG_HEIGHT:
+      del game_msgs[0]
+    game_msgs.append((line, color))
+    
+#@+node:peckj.20130918082920.2715: *3* menus
+#@+node:peckj.20130918082920.2704: *4* menu
 def menu(header, options, width):
   if len(options) > 26: raise ValueError('Cannot have a menu with more than 26 options.')
   header_height = libtcod.console_get_height_rect(con, 0, 0, width, SCREEN_HEIGHT, header)
@@ -352,26 +457,123 @@ def menu(header, options, width):
   index = key.c - ord('a')
   if index >= 0 and index < len(options): return index
   return None
-#@+node:peckj.20130917090235.2672: *3* create_h_tunnel
-def create_h_tunnel(x1, x2, y):
-  global map
-  for x in range(min(x1, x2), max(x1, x2) + 1):
-    map[x][y].blocked = False
-    map[x][y].block_sight = False
-#@+node:peckj.20130917090235.2674: *3* create_v_tunnel
-def create_v_tunnel(y1, y2, x):
-  global map
-  for y in range(min(y1, y2), max(y1, y2) + 1):
-    map[x][y].blocked = False
-    map[x][y].block_sight = False
-#@+node:peckj.20130918082920.2711: *3* cast_heal
+#@+node:peckj.20130918082920.2705: *4* inventory_menu
+def inventory_menu(header):
+  if len(inventory) == 0:
+    options = ['Inventory is empty.']
+  else:
+    options = [item.name for item in inventory]
+    
+  index = menu(header, options, INVENTORY_WIDTH)
+  if index is None or len(inventory) == 0: return None
+  return inventory[index].item
+#@+node:peckj.20130918082920.2716: *3* items
+#@+node:peckj.20130918082920.2711: *4* cast_heal
 def cast_heal():
   if player.fighter.hp == player.fighter.max_hp:
     message('You are already at full health.', libtcod.red)
     return 'cancelled'
   message('Your wounds start to feel better!', libtcod.light_violet)
   player.fighter.heal(HEAL_AMOUNT)
-#@+node:peckj.20130917090235.2653: *3* handle_keys
+#@+node:peckj.20130918082920.2721: *4* cast_lightning
+def cast_lightning():
+  monster = closest_monster(LIGHTNING_RANGE)
+  if monster is None:
+    message('No enemy is close enough to strike.', libtcod.red)
+    return 'cancelled'
+  message('A lightning bold strikes the ' + monster.name + ' with a loud thunder! The damage is ' + str(LIGHTNING_DAMAGE) + ' hit points.', libtcod.light_blue)
+  monster.fighter.take_damage(LIGHTNING_DAMAGE)
+#@+node:peckj.20130918082920.2726: *4* cast_confuse
+def cast_confuse():
+  message('Left-click an enemy to confuse it, or right-click to cancel.', libtcod.light_cyan)
+  monster = target_monster(CONFUSE_RANGE)
+  if monster is None: return 'cancelled'
+  else:
+    old_ai = monster.ai
+    monster.ai = ConfusedMonster(old_ai)
+    monster.ai.owner = monster
+    message('The eyes of the ' + monster.name + ' look vacant, as he starts to stumble around!', libtcod.light_green)
+#@+node:peckj.20130918082920.2729: *4* cast_fireball
+def cast_fireball():
+  message('Left-click a target tile for the fireball, or right-click to cance.', libtcod.light_cyan)
+  (x, y) = target_tile()
+  if x is None: return 'cancelled'
+  message('The fireball explodes, burning everything within ' + str(FIREBALL_RADIUS) + ' tiles!', libtcod.orange)
+  for obj in objects:
+    if obj.distance(x, y) <= FIREBALL_RADIUS and obj.fighter:
+      message('The ' + obj.name + ' gets burned for ' + str(FIREBALL_DAMAGE) + ' hit points.', libtcod.orange)
+      obj.fighter.take_damage(FIREBALL_DAMAGE)
+#@+node:peckj.20130918082920.2717: *3* ai
+#@+node:peckj.20130918082920.2695: *4* monster_death
+def monster_death(monster):
+  message(monster.name.capitalize() + ' is dead!', libtcod.orange)
+  monster.char = '%'
+  monster.color = libtcod.dark_red
+  monster.blocks = False
+  monster.fighter = None
+  monster.ai = None
+  monster.name = 'remains of ' + monster.name
+  monster.send_to_back()
+#@+node:peckj.20130918082920.2694: *4* player_death
+def player_death(player):
+  global game_state
+  message('You died!', libtcod.red)
+  game_state = 'dead'
+  
+  player.char = '%'
+  player.color = libtcod.dark_red
+#@+node:peckj.20130918082920.2718: *3* query
+#@+node:peckj.20130917203908.2680: *4* is_blocked
+def is_blocked(x, y):
+  if map[x][y].blocked:
+    return True
+  for object in objects:
+    if object.blocks and object.x == x and object.y == y:
+      return True
+  return False
+#@+node:peckj.20130918082920.2722: *4* closest_monster
+def closest_monster(max_range):
+  closest_enemy = None
+  closest_dist = max_range + 1
+  for object in objects:
+    if object.fighter and not object == player and libtcod.map_is_in_fov(fov_map, object.x, object.y):
+      dist = player.distance_to(object)
+      if dist < closest_dist:
+        closest_enemy = object
+        closest_dist = dist
+  return closest_enemy
+#@+node:peckj.20130918082920.2719: *3* actions
+#@+node:peckj.20130918082920.2701: *4* get_names_under_mouse
+def get_names_under_mouse():
+  global mouse
+  (x, y) = (mouse.cx, mouse.cy)
+  names = [obj.name for obj in objects if obj.x == x and obj.y == y and libtcod.map_is_in_fov(fov_map, obj.x, obj.y)]
+  names = ', '.join(names)
+  return names.capitalize()
+#@+node:peckj.20130918082920.2727: *4* target_tile
+def target_tile(max_range=None):
+  global key, mouse
+  while True:
+    libtcod.console_flush()
+    libtcod.sys_check_for_event(libtcod.EVENT_KEY_PRESS|libtcod.EVENT_MOUSE, key, mouse)
+    render_all()
+    
+    (x, y) = (mouse.cx, mouse.cy)
+    
+    if mouse.lbutton_pressed and libtcod.map_is_in_fov(fov_map, x, y) and (max_range is None or player.distance(x, y) <= max_range):
+      return (x, y)
+    if mouse.rbutton_pressed or key.vk == libtcod.KEY_ESCAPE:
+      return (None, None)
+#@+node:peckj.20130918082920.2730: *4* target_monster
+def target_monster(max_range=None):
+  while True:
+    (x, y) = target_tile(max_range)
+    if x is None:
+      return None
+    for obj in objects:
+      if obj.x == x and obj.y == y and obj.fighter and obj != player:
+        return obj
+#@+node:peckj.20130917090235.2653: *4* handle_keys
 def handle_keys():
   global fov_recompute, key
 
@@ -405,69 +607,15 @@ def handle_keys():
             object.item.pick_up()
             break
       if key_char == 'i':
-        chosen_item = inventory_menu('Press the key next to an item to us it, or any other to cancel.\n')
+        chosen_item = inventory_menu('Press the key next to an item to use it, or any other to cancel.\n')
         if chosen_item is not None:
           chosen_item.use()
+      if key_char == 'd':
+        chosen_item = inventory_menu('Press the key next to an item to drop it, or any other to cancel.\n')
+        if chosen_item is not None:
+          chosen_item.drop()
       return 'didnt-take-turn'
-#@+node:peckj.20130918082920.2705: *3* inventory_menu
-def inventory_menu(header):
-  if len(inventory) == 0:
-    options = ['Inventory is empty.']
-  else:
-    options = [item.name for item in inventory]
-    
-  index = menu(header, options, INVENTORY_WIDTH)
-  if index is None or len(inventory) == 0: return None
-  return inventory[index].item
-#@+node:peckj.20130918082920.2701: *3* get_names_under_mouse
-def get_names_under_mouse():
-  global mouse
-  (x, y) = (mouse.cx, mouse.cy)
-  names = [obj.name for obj in objects if obj.x == x and obj.y == y and libtcod.map_is_in_fov(fov_map, obj.x, obj.y)]
-  names = ', '.join(names)
-  return names.capitalize()
-#@+node:peckj.20130917203359.2679: *3* place_objects
-def place_objects(room):
-  #choose random number of monsters
-  num_monsters = libtcod.random_get_int(0, 0, MAX_ROOM_MONSTERS)
-  
-  for i in range(num_monsters):
-    #choose random spot for this monster
-    x = libtcod.random_get_int(0, room.x1+1, room.x2-1)
-    y = libtcod.random_get_int(0, room.y1+1, room.y2-1)
-
-    if not is_blocked(x, y):
-      if libtcod.random_get_int(0, 0, 100) < 80:  #80% chance of getting an orc
-        #create an orc
-        fighter_component = Fighter(hp=10, defense=0, power=3, death_function=monster_death)
-        ai_component = BasicMonster()
-        monster = Object(x, y, 'o', 'orc', libtcod.desaturated_green, blocks=True, fighter=fighter_component, ai=ai_component)
-      else:
-        #create a troll
-        fighter_component = Fighter(hp=16, defense=1, power=4, death_function=monster_death)
-        ai_component = BasicMonster()
-        monster = Object(x, y, 'T', 'troll', libtcod.darker_green, blocks=True, fighter=fighter_component, ai=ai_component)
-  
-      objects.append(monster)
-  
-  num_items = libtcod.random_get_int(0, 0, MAX_ROOM_ITEMS)
-  for i in range(num_items):
-    x = libtcod.random_get_int(0, room.x1+1, room.x2-1)
-    y = libtcod.random_get_int(0, room.y1+1, room.y2-1)
-    if not is_blocked(x, y):
-      item_component = Item(use_function=cast_heal)
-      item = Object(x, y, '!', 'healing potion', libtcod.violet, item=item_component)
-      objects.append(item)
-      item.send_to_back()
-#@+node:peckj.20130917203908.2680: *3* is_blocked
-def is_blocked(x, y):
-  if map[x][y].blocked:
-    return True
-  for object in objects:
-    if object.blocks and object.x == x and object.y == y:
-      return True
-  return False
-#@+node:peckj.20130917203908.2681: *3* player_move_or_attack
+#@+node:peckj.20130917203908.2681: *4* player_move_or_attack
 def player_move_or_attack(dx, dy):
   global fov_recompute
 
@@ -488,32 +636,6 @@ def player_move_or_attack(dx, dy):
   else:
     player.move(dx, dy)
     fov_recompute = True
-#@+node:peckj.20130918082920.2694: *3* player_death
-def player_death(player):
-  global game_state
-  message('You died!', libtcod.red)
-  game_state = 'dead'
-  
-  player.char = '%'
-  player.color = libtcod.dark_red
-#@+node:peckj.20130918082920.2695: *3* monster_death
-def monster_death(monster):
-  message(monster.name.capitalize() + ' is dead!', libtcod.orange)
-  monster.char = '%'
-  monster.color = libtcod.dark_red
-  monster.blocks = False
-  monster.fighter = None
-  monster.ai = None
-  monster.name = 'remains of ' + monster.name
-  monster.send_to_back()
-#@+node:peckj.20130918082920.2700: *3* message
-def message(new_msg, color=libtcod.white):
-  new_msg_lines = textwrap.wrap(new_msg, MSG_WIDTH)
-  for line in new_msg_lines:
-    if len(game_msgs) == MSG_HEIGHT:
-      del game_msgs[0]
-    game_msgs.append((line, color))
-    
 #@+node:peckj.20130917090235.2651: ** setup
 # set custom font
 libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
