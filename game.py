@@ -28,6 +28,8 @@ color_light_ground = libtcod.Color(200, 180, 50)
 ROOM_MAX_SIZE = 10
 ROOM_MIN_SIZE = 6
 MAX_ROOMS = 30
+
+MAX_ROOM_MONSTERS = 3
 #@+node:peckj.20130917090235.2678: *3* fov stuff
 FOV_ALGO = libtcod.FOV_DIAMOND
 FOV_LIGHT_WALLS = True
@@ -41,16 +43,20 @@ TORCH_RADIUS = 10
 class Object:
   #@+others
   #@+node:peckj.20130917090235.2655: *4* __init__
-  def __init__(self, x, y, char, color):
+  def __init__(self, x, y, char, name, color, blocks=False):
+    self.blocks = blocks
+    self.name = name
     self.x = x
     self.y = y
     self.char = char
     self.color = color
   #@+node:peckj.20130917090235.2656: *4* move
   def move(self, dx, dy):
-    if not map[self.x + dx][self.y + dy].blocked:
-      self.x += dx
-      self.y += dy
+    newx = self.x + dx
+    newy = self.y + dy
+    if not is_blocked(newx, newy):
+      self.x = newx
+      self.y = newy
   #@+node:peckj.20130917090235.2657: *4* draw
   def draw(self):
     libtcod.console_set_default_foreground(con, self.color)
@@ -121,9 +127,8 @@ def make_map():
     
     if not failed:
       create_room(new_room)
+      place_objects(new_room)
       (new_x, new_y) = new_room.center()
-      room_no = Object(new_x, new_y, chr(65+num_rooms), libtcod.red)
-      objects.insert(0, room_no)
       if num_rooms == 0: # first room
         player.x = new_x
         player.y = new_y
@@ -202,23 +207,71 @@ def handle_keys():
     libtcod.console_set_fullscreen(not libtcod.console_is_fullscreen())
   
   elif key.vk == libtcod.KEY_ESCAPE:
-    return True # exit game
+    return 'exit' # exit game
+    
+  if game_state == 'playing':
+    # movement keys
+    if libtcod.console_is_key_pressed(libtcod.KEY_UP):
+      player_move_or_attack(0, -1)
+      
+    elif libtcod.console_is_key_pressed(libtcod.KEY_DOWN):
+      player_move_or_attack(0, 1)
   
-  # movement keys
-  if libtcod.console_is_key_pressed(libtcod.KEY_UP):
-    player.move(0,-1)
-    fov_recompute = True
+    elif libtcod.console_is_key_pressed(libtcod.KEY_LEFT):
+      player_move_or_attack(-1, 0)
+      
+    elif libtcod.console_is_key_pressed(libtcod.KEY_RIGHT):
+      player_move_or_attack(1, 0)
     
-  elif libtcod.console_is_key_pressed(libtcod.KEY_DOWN):
-    player.move(0,1)
-    fov_recompute = True
+    else:
+      return 'didnt-take-turn'
+#@+node:peckj.20130917203359.2679: *3* place_objects
+def place_objects(room):
+  #choose random number of monsters
+  num_monsters = libtcod.random_get_int(0, 0, MAX_ROOM_MONSTERS)
+  
+  for i in range(num_monsters):
+    #choose random spot for this monster
+    x = libtcod.random_get_int(0, room.x1, room.x2)
+    y = libtcod.random_get_int(0, room.y1, room.y2)
 
-  elif libtcod.console_is_key_pressed(libtcod.KEY_LEFT):
-    player.move(-1,0)
-    fov_recompute = True
-    
-  elif libtcod.console_is_key_pressed(libtcod.KEY_RIGHT):
-    player.move(1,0)
+    if not is_blocked(x, y):
+      if libtcod.random_get_int(0, 0, 100) < 80:  #80% chance of getting an orc
+        #create an orc
+        monster = Object(x, y, 'o', 'orc', libtcod.desaturated_green, blocks=True)
+      else:
+        #create a troll
+        monster = Object(x, y, 'T', 'troll', libtcod.darker_green, blocks=True)
+  
+      objects.append(monster)
+#@+node:peckj.20130917203908.2680: *3* is_blocked
+def is_blocked(x, y):
+  if map[x][y].blocked:
+    return True
+  for object in objects:
+    if object.blocks and object.x == x and object.y == y:
+      return True
+  return False
+#@+node:peckj.20130917203908.2681: *3* player_move_or_attack
+def player_move_or_attack(dx, dy):
+  global fov_recompute
+
+  # the coordinates the player is moving to/attacking
+  x = player.x + dx
+  y = player.y + dy
+
+  # try to find an attackable object there
+  target = None
+  for object in objects:
+    if object.x == x and object.y == y:
+      target = object
+      break
+
+  # attack if target found, move otherwise
+  if target is not None:
+    print 'The ' + target.name + ' laughs at your puny efforts to attack him!'
+  else:
+    player.move(dx, dy)
     fov_recompute = True
 #@+node:peckj.20130917090235.2651: ** setup
 # set custom font
@@ -234,7 +287,7 @@ con = libtcod.console_new(SCREEN_WIDTH, SCREEN_HEIGHT)
 libtcod.sys_set_fps(LIMIT_FPS)
 
 # game objects
-player = Object(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, '@', libtcod.white)
+player = Object(0, 0, '@', 'player', libtcod.white, blocks=True)
 objects = [player]
 player.x = 25
 player.y = 23
@@ -248,6 +301,10 @@ fov_map = libtcod.map_new(MAP_WIDTH, MAP_HEIGHT)
 for y in range(MAP_HEIGHT):
   for x in range(MAP_WIDTH):
     libtcod.map_set_properties(fov_map, x, y, not map[x][y].block_sight, not map[x][y].blocked)
+
+# game state
+game_state = 'playing'
+player_action = None
 #@+node:peckj.20130917090235.2652: ** main loop
 while not libtcod.console_is_window_closed():
   # update screen
@@ -259,8 +316,14 @@ while not libtcod.console_is_window_closed():
     object.clear()
   
   # grab keys (blocking)
-  exit = handle_keys()
-  if exit:
+  player_action = handle_keys()
+  if player_action == 'exit':
     break
+  
+  #let monsters take their turn
+  if game_state == 'playing' and player_action != 'didnt-take-turn':
+    for object in objects:
+      if object != player:
+        print 'The ' + object.name + ' growls!'
 #@-others
 #@-leo
