@@ -11,7 +11,7 @@
 <find_panel_settings/>
 <vnodes>
 <v t="peckj.20130917090235.2648" a="E"
-expanded="peckj.20130917090235.2650,peckj.20130917090235.2666,peckj.20130918082920.2717,peckj.20130918082920.2719,peckj.20130918082920.2743,"><vh>@file game.py</vh></v>
+expanded="peckj.20130917090235.2650,peckj.20130917090235.2666,peckj.20130918082920.2713,peckj.20130918082920.2717,peckj.20130918082920.2734,"><vh>@file game.py</vh></v>
 </vnodes>
 <tnodes>
 </tnodes>

@@ -32,8 +32,6 @@ ROOM_MAX_SIZE = 10
 ROOM_MIN_SIZE = 6
 MAX_ROOMS = 30
 
-MAX_ROOM_MONSTERS = 3
-MAX_ROOM_ITEMS = 2
 #@+node:peckj.20130917090235.2678: *3* fov stuff
 FOV_ALGO = libtcod.FOV_DIAMOND
 FOV_LIGHT_WALLS = True
@@ -51,15 +49,15 @@ INVENTORY_WIDTH = 50
 
 #@+node:peckj.20130918082920.2736: *3* spells/scrolls/items
 # spells
-HEAL_AMOUNT = 4
+HEAL_AMOUNT = 40
 
-LIGHTNING_DAMAGE = 20
+LIGHTNING_DAMAGE = 40
 LIGHTNING_RANGE = 5
 
 CONFUSE_NUM_TURNS = 10
 CONFUSE_RANGE = 8
 
-FIREBALL_DAMAGE = 12
+FIREBALL_DAMAGE = 25
 FIREBALL_RADIUS = 3
 #@+node:peckj.20130918082920.2742: *3* character advancement
 LEVEL_UP_BASE = 200
@@ -339,8 +337,20 @@ def create_v_tunnel(y1, y2, x):
     map[x][y].block_sight = False
 #@+node:peckj.20130917203359.2679: *4* place_objects
 def place_objects(room):
+  # set up the object placer
+  max_monsters = from_dungeon_level([[2, 1], [3, 4], [5, 6]])
+  monster_chances = {}
+  monster_chances['orc'] = 80
+  monster_chances['troll'] = from_dungeon_level([[15, 2], [30, 5], [60, 7]])
+  max_items = from_dungeon_level([[1, 1], [2, 4]])
+  item_chances = {}
+  item_chances['heal'] = 35
+  item_chances['lightning'] = from_dungeon_level([[25, 4]])
+  item_chances['fireball'] = from_dungeon_level([[25, 6]])
+  item_chances['confuse'] = from_dungeon_level([[10, 2]])
+  
   #choose random number of monsters
-  num_monsters = libtcod.random_get_int(0, 0, MAX_ROOM_MONSTERS)
+  num_monsters = libtcod.random_get_int(0, 0, max_monsters)
   
   for i in range(num_monsters):
     #choose random spot for this monster
@@ -348,35 +358,36 @@ def place_objects(room):
     y = libtcod.random_get_int(0, room.y1+1, room.y2-1)
 
     if not is_blocked(x, y):
-      if libtcod.random_get_int(0, 0, 100) < 80:  #80% chance of getting an orc
+      choice = random_choice(monster_chances)
+      if choice == 'orc':
         #create an orc
-        fighter_component = Fighter(hp=10, defense=0, power=3, xp=35, death_function=monster_death)
+        fighter_component = Fighter(hp=20, defense=0, power=4, xp=35, death_function=monster_death)
         ai_component = BasicMonster()
         monster = Object(x, y, 'o', 'orc', libtcod.desaturated_green, blocks=True, fighter=fighter_component, ai=ai_component)
-      else:
+      elif choice == 'troll':
         #create a troll
-        fighter_component = Fighter(hp=16, defense=1, power=4, xp=100, death_function=monster_death)
+        fighter_component = Fighter(hp=30, defense=2, power=8, xp=100, death_function=monster_death)
         ai_component = BasicMonster()
         monster = Object(x, y, 'T', 'troll', libtcod.darker_green, blocks=True, fighter=fighter_component, ai=ai_component)
   
       objects.append(monster)
   
-  num_items = libtcod.random_get_int(0, 0, MAX_ROOM_ITEMS)
+  num_items = libtcod.random_get_int(0, 0, max_items)
   for i in range(num_items):
     x = libtcod.random_get_int(0, room.x1+1, room.x2-1)
     y = libtcod.random_get_int(0, room.y1+1, room.y2-1)
     if not is_blocked(x, y):
-      dice = libtcod.random_get_int(0, 0, 100)
-      if dice < 70:
+      choice = random_choice(item_chances)
+      if choice == 'heal':
         item_component = Item(use_function=cast_heal)
         item = Object(x, y, '!', 'healing potion', libtcod.violet, item=item_component, always_visible=True)
-      elif dice < 70+10:
+      elif choice == 'lightning':
         item_component = Item(use_function=cast_lightning)
         item = Object(x, y, '#', 'scroll of lightning bolt', libtcod.light_yellow, item=item_component, always_visible=True)
-      elif dice < 70+10+10:
+      elif choice == 'fireball':
         item_component = Item(use_function=cast_fireball)
         item = Object(x, y, '#', 'scroll of fireball', libtcod.light_yellow, item=item_component, always_visible=True)
-      else:
+      elif choice == 'confuse':
         item_component = Item(use_function=cast_confuse)
         item = Object(x, y, '#', 'scroll of confusion', libtcod.light_yellow, item=item_component, always_visible=True)
         
@@ -699,12 +710,34 @@ def player_move_or_attack(dx, dy):
     player.move(dx, dy)
     fov_recompute = True
 #@+node:peckj.20130918082920.2734: *3* game loop
+#@+node:peckj.20130919090559.2744: *4* from_dungeon_level
+def from_dungeon_level(table):
+  for (value, level) in reversed(table):
+    if dungeon_level >= level:
+      return value
+  return 0
+#@+node:peckj.20130919090559.2742: *4* random_choice_index
+def random_choice_index(chances):
+  dice = libtcod.random_get_int(0, 1, sum(chances))
+  running_sum = 0
+  choice = 0
+  for w in chances:
+    running_sum += w
+    if dice <= running_sum:
+      return choice
+    choice += 1
+#@+node:peckj.20130919090559.2743: *4* random_choice
+def random_choice(chances_dict):
+  chances = chances_dict.values()
+  strings = chances_dict.keys()
+  return strings[random_choice_index(chances)]
+  
 #@+node:peckj.20130918082920.2732: *4* new_game
 def new_game():
   global player, inventory, game_msgs, game_state, dungeon_level
   
   # create player
-  fighter_component = Fighter(hp=30, defense=2, power=5, xp=0, death_function=player_death)
+  fighter_component = Fighter(hp=100, defense=1, power=4, xp=0, death_function=player_death)
   player = Object(0, 0, '@', 'player', libtcod.white, blocks=True, fighter=fighter_component)  
   player.level = 1
   
