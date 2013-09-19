@@ -75,7 +75,7 @@ CHARACTER_SCREEN_WIDTH = 30
 class Object:
   #@+others
   #@+node:peckj.20130917090235.2655: *4* __init__
-  def __init__(self, x, y, char, name, color, blocks=False, always_visible=False, fighter=None, ai=None, item=None):
+  def __init__(self, x, y, char, name, color, blocks=False, always_visible=False, fighter=None, ai=None, item=None, equipment=None):
     self.blocks = blocks
     self.name = name
     self.x = x
@@ -94,6 +94,12 @@ class Object:
     
     self.item = item
     if self.item:
+      self.item.owner = self
+      
+    self.equipment = equipment
+    if self.equipment:
+      self.equipment.owner = self
+      self.item = Item()
       self.item.owner = self
   #@+node:peckj.20130917090235.2656: *4* move
   def move(self, dx, dy):
@@ -175,10 +181,10 @@ class Fighter:
   #@+others
   #@+node:peckj.20130918082920.2687: *4* __init__
   def __init__(self, hp, defense, power, xp, death_function=None):
-    self.max_hp = hp
+    self.base_max_hp = hp
     self.hp = hp
-    self.defense = defense
-    self.power = power
+    self.base_defense = defense
+    self.base_power = power
     self.xp = xp
     self.death_function = death_function
   #@+node:peckj.20130918082920.2692: *4* take_damage
@@ -204,6 +210,21 @@ class Fighter:
     self.hp += amount
     if self.hp > self.max_hp:
       self.hp = self.max_hp
+  #@+node:peckj.20130919090559.2751: *4* power
+  @property
+  def power(self):
+    bonus = sum(equipment.power_bonus for equipment in get_all_equipped(self.owner))
+    return self.base_power + bonus
+  #@+node:peckj.20130919090559.2753: *4* defense
+  @property
+  def defense(self):
+    bonus = sum(equipment.defense_bonus for equipment in get_all_equipped(self.owner))
+    return self.base_defense + bonus
+  #@+node:peckj.20130919090559.2754: *4* max_hp
+  @property
+  def max_hp(self):
+    bonus = sum(equipment.max_hp_bonus for equipment in get_all_equipped(self.owner))
+    return self.base_max_hp + bonus
   #@-others
 #@+node:peckj.20130918082920.2688: *3* BasicMonster class
 class BasicMonster:
@@ -249,6 +270,9 @@ class Item:
       inventory.append(self.owner)
       objects.remove(self.owner)
       message('You picked up a ' + self.owner.name + '!', libtcod.green)
+      equipment = self.owner.equipment
+      if equipment and get_equipped_in_slot(equipment.slot) is None:
+        equipment.equip()
   #@+node:peckj.20130918082920.2731: *4* drop
   def drop(self):
     objects.append(self.owner)
@@ -256,8 +280,13 @@ class Item:
     self.owner.x = player.x
     self.owner.y = player.y
     message('You dropped a ' + self.owner.name + '.', libtcod.yellow)
+    if self.owner.equipment:
+      self.owner.equipment.dequip()
   #@+node:peckj.20130918082920.2710: *4* use
   def use(self):
+    if self.owner.equipment:
+      self.owner.equipment.toggle_equip()
+      return
     if self.use_function is None:
       message('The ' + self.owner.name + ' cannot be used.')
     else:
@@ -265,6 +294,35 @@ class Item:
         inventory.remove(self.owner)
   #@-others
   
+#@+node:peckj.20130919090559.2745: *3* Equipment class
+class Equipment:
+  #@+others
+  #@+node:peckj.20130919090559.2746: *4* __init__
+  def __init__(self, slot, power_bonus=0, defense_bonus=0, max_hp_bonus=0):
+    self.power_bonus = power_bonus
+    self.defense_bonus = defense_bonus
+    self.max_hp_bonus = max_hp_bonus
+    self.slot = slot
+    self.is_equipped = False
+  #@+node:peckj.20130919090559.2747: *4* toggle_equip
+  def toggle_equip(self):
+    if self.is_equipped:
+      self.dequip()
+    else:
+      self.equip()
+  #@+node:peckj.20130919090559.2748: *4* equip
+  def equip(self):
+    old_equipment = get_equipped_in_slot(self.slot)
+    if old_equipment is not None:
+      old_equipment.dequip()
+    self.is_equipped = True
+    message('Equipped ' + self.owner.name + ' on ' + self.slot + '.', libtcod.light_green)
+  #@+node:peckj.20130919090559.2749: *4* dequip
+  def dequip(self):
+    if not self.is_equipped: return
+    self.is_equipped = False
+    message('Dequipped ' + self.owner.name + ' from ' + self.slot + '.', libtcod.light_yellow)
+  #@-others
 #@+node:peckj.20130917090235.2666: ** helper functions
 #@+node:peckj.20130918082920.2713: *3* mapping
 #@+node:peckj.20130917090235.2662: *4* make_map
@@ -348,6 +406,8 @@ def place_objects(room):
   item_chances['lightning'] = from_dungeon_level([[25, 4]])
   item_chances['fireball'] = from_dungeon_level([[25, 6]])
   item_chances['confuse'] = from_dungeon_level([[10, 2]])
+  item_chances['sword'] = from_dungeon_level([[5, 4]])
+  item_chances['shield'] = from_dungeon_level([[15, 8]])
   
   #choose random number of monsters
   num_monsters = libtcod.random_get_int(0, 0, max_monsters)
@@ -390,6 +450,12 @@ def place_objects(room):
       elif choice == 'confuse':
         item_component = Item(use_function=cast_confuse)
         item = Object(x, y, '#', 'scroll of confusion', libtcod.light_yellow, item=item_component, always_visible=True)
+      elif choice == 'sword':
+        equipment_component = Equipment(slot='right hand', power_bonus=3)
+        item = Object(x, y, '/', 'sword', libtcod.sky, equipment=equipment_component)
+      elif choice == 'shield':
+        equipment_component = Equipment(slot='left hand', defense_bonus=1)
+        item = Object(x, y, '[', 'shield', libtcod.darker_orange, equipment=equipment_component)
         
       objects.append(item)
       item.send_to_back()
@@ -499,7 +565,13 @@ def inventory_menu(header):
   if len(inventory) == 0:
     options = ['Inventory is empty.']
   else:
-    options = [item.name for item in inventory]
+    #options = [item.name for item in inventory]
+    options = []
+    for item in inventory:
+      text = item.name
+      if item.equipment and item.equipment.is_equipped:
+        text = text + ' (on ' + item.equipment.slot + ')'
+      options.append(text)
     
   index = menu(header, options, INVENTORY_WIDTH)
   if index is None or len(inventory) == 0: return None
@@ -709,6 +781,22 @@ def player_move_or_attack(dx, dy):
   else:
     player.move(dx, dy)
     fov_recompute = True
+#@+node:peckj.20130919090559.2750: *4* get_equipped_in_slot
+def get_equipped_in_slot(slot):
+  for obj in inventory:
+    if obj.equipment and obj.equipment.slot == slot and obj.equipment.is_equipped:
+      return obj.equipment
+  return None
+#@+node:peckj.20130919090559.2752: *4* get_all_equipped
+def get_all_equipped(obj):
+  if obj == player:
+    equipped_list = []
+    for item in inventory:
+      if item.equipment and item.equipment.is_equipped:
+        equipped_list.append(item.equipment)
+    return equipped_list
+  else:
+    return []
 #@+node:peckj.20130918082920.2734: *3* game loop
 #@+node:peckj.20130919090559.2744: *4* from_dungeon_level
 def from_dungeon_level(table):
@@ -737,8 +825,8 @@ def new_game():
   global player, inventory, game_msgs, game_state, dungeon_level
   
   # create player
-  fighter_component = Fighter(hp=100, defense=1, power=4, xp=0, death_function=player_death)
-  player = Object(0, 0, '@', 'player', libtcod.white, blocks=True, fighter=fighter_component)  
+  fighter_component = Fighter(hp=100, defense=1, power=2, xp=0, death_function=player_death)
+  player = Object(0, 0, '@', 'player', libtcod.white, blocks=True, fighter=fighter_component)
   player.level = 1
   
   # generate map
@@ -755,6 +843,13 @@ def new_game():
   # messages
   game_msgs = []
   message('Welcome stranger! Prepare to parish in the Tomps of the Ancient Kings.', libtcod.red)
+
+  # equip the player
+  equipment_component = Equipment(slot='right hand', power_bonus=2)
+  obj = Object(0, 0, '-', 'dagger', libtcod.sky, equipment=equipment_component)
+  inventory.append(obj)
+  equipment_component.equip()
+  obj.always_visible = True
 #@+node:peckj.20130918082920.2733: *4* initialize_fov
 def initialize_fov():
   global fov_recompute, fov_map
@@ -845,12 +940,12 @@ def check_level_up():
          'Strength (+1 attack, from ' + str(player.fighter.power) + ')',
          'Agility (+1 defense, from ' + str(player.fighter.defense) + ')'], LEVEL_SCREEN_WIDTH)
     if choice == 0:
-      player.fighter.max_hp += 20
+      player.fighter.base_max_hp += 20
       player.fighter.hp += 20
     elif choice == 1:
-      player.fighter.power += 1
+      player.fighter.base_power += 1
     elif choice == 2:
-      player.fighter.defense += 1
+      player.fighter.base_defense += 1
 #@+node:peckj.20130917090235.2651: ** setup
 # set custom font
 libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
