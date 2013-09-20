@@ -273,20 +273,24 @@ class Fighter:
 class Actor:
   #@+others
   #@+node:peckj.20130920123421.3488: *5* __init__
-  def __init__(self, speed=0, act_function=None, time=1):
+  def __init__(self, speed=0, act_function=None, active=True, time=1):
     self.speed = speed
+    self.active = active
     self.time = time
     self.act_function = act_function
   #@+node:peckj.20130920123421.3489: *5* act
   def act(self):
     function = self.act_function
-    if function is None:
+    print 'acting'
+    print 'scheduler.ticks: %s' % scheduler.ticks
+    if function is None or not self.active:
       return True # prevent lockups forever
     if function is not None:
       result = function(self.owner)
     if result:
-      ticks = MAX_SCHEDULER_TICKS - self.speed
-      self.time += self.speed
+      my_ticks = MAX_SCHEDULER_TICKS - self.speed
+      self.time = scheduler.ticks + my_ticks
+      #print "new time: %s" % self.time
     return result
   #@+node:peckj.20130920123421.3492: *5* __cmp__
   def __cmp__(self, other):
@@ -407,25 +411,31 @@ class Scheduler:
     self.ticks = ticks
   #@+node:peckj.20130920123421.3490: *4* tick
   def tick(self):
-    #print self.ticks
     actors = []
     while actors == []:
       actors = self.schedule.pop(self.ticks, [])
       self.ticks += 1
-    #print actors
+    print self.ticks
+    print actors
     for a in actors:
-      a.act()
+      r = a.act()
+      while not r:
+        r = a.act()
       self.push(a)
   #@+node:peckj.20130920123421.3493: *4* remove
   def remove(self, actor):
+    print 'removing %s' % actor.owner.name
     if actor not in self.tracked:
+      print 'actor not in scheduler'
       return
-    for x in self.schedule:
-      if actor in self.schedule[x]:
-        self.schedule[x].remove(actor)
+    for s in self.schedule.values():
+      if actor in s:
+        s.remove(actor)
+        print s
+    self.tracked.remove(actor)
   #@+node:peckj.20130920123421.3491: *4* push
   def push(self, actor):
-    self.schedule.setdefault(self.ticks + actor.time, []).append(actor)
+    self.schedule.setdefault(actor.time, []).append(actor)
     if actor not in self.tracked: self.tracked.append(actor)
   #@-others
 #@+node:peckj.20130917090235.2666: ** helper functions
@@ -745,6 +755,8 @@ def cast_fireball():
 #@+node:peckj.20130918082920.2695: *4* monster_death
 def monster_death(monster):
   global scheduler
+  scheduler.remove(monster.actor)
+  monster.actor.active = False
   message(monster.name.capitalize() + ' is dead! You gain ' + str(monster.fighter.xp) + ' experience points.', libtcod.orange)
   monster.char = '%'
   monster.color = libtcod.dark_red
@@ -753,8 +765,6 @@ def monster_death(monster):
   monster.ai = None
   monster.name = 'remains of ' + monster.name
   monster.send_to_back()
-  scheduler.remove(monster.actor)
-  monster.actor = None
 #@+node:peckj.20130918082920.2694: *4* player_death
 def player_death(player):
   global game_state
@@ -764,7 +774,7 @@ def player_death(player):
   player.char = '%'
   player.color = libtcod.dark_red
   scheduler.remove(player.actor)
-  player.actor = None
+  player.actor.active = False
 #@+node:peckj.20130918082920.2718: *3* query
 #@+node:peckj.20130917203908.2680: *4* is_blocked
 def is_blocked(x, y):
@@ -818,9 +828,11 @@ def target_monster(max_range=None):
         return obj
 #@+node:peckj.20130917090235.2653: *4* handle_keys
 def handle_keys():
-  global fov_recompute#, key
-
-  key = libtcod.console_wait_for_keypress(True)
+  global fov_recompute, key
+  
+  print 'called handle_keys'
+  #key = libtcod.console_wait_for_keypress(True)
+  print 'key = %s' % chr(key.c)
 
   if key.vk == libtcod.KEY_ENTER and key.lalt:
     # lalt+enter = fullscreen
@@ -915,6 +927,7 @@ def get_all_equipped(obj):
 #@+node:peckj.20130920123421.3494: *4* player_take_action
 def player_take_action(self):
   global game_state, player_action
+  
   player_action = handle_keys()
   if player_action == 'exit':
     game_state = 'exit'
@@ -985,6 +998,7 @@ def new_game():
   
   # set up the scheduler
   scheduler = Scheduler()
+  #scheduler.push(player.actor)
   for a in objects:
     if a.actor is not None:
       scheduler.push(a.actor)
@@ -1008,7 +1022,7 @@ def play_game():
   mouse = libtcod.Mouse()
   key = libtcod.Key()
   while not libtcod.console_is_window_closed():
-    libtcod.sys_check_for_event(libtcod.EVENT_KEY_PRESS|libtcod.EVENT_MOUSE, key, mouse)
+    #libtcod.sys_check_for_event(libtcod.EVENT_KEY_PRESS|libtcod.EVENT_MOUSE, key, mouse)
     render_all()
     
     libtcod.console_flush()
