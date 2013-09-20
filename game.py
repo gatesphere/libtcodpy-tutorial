@@ -68,7 +68,7 @@ LEVEL_SCREEN_WIDTH = 40
 
 CHARACTER_SCREEN_WIDTH = 30
 #@+node:peckj.20130920123421.3486: *3* scheduler stuff
-MAX_SCHEDULER_TICKS = 100
+MAX_SCHEDULER_TICKS = 15
 #@-others
 #@-<< definitions >>
 
@@ -273,9 +273,9 @@ class Fighter:
 class Actor:
   #@+others
   #@+node:peckj.20130920123421.3488: *5* __init__
-  def __init__(self, speed=0, act_function=None, time=0):
+  def __init__(self, speed=0, act_function=None, time=1):
     self.speed = speed
-    self.time = 0
+    self.time = time
     self.act_function = act_function
   #@+node:peckj.20130920123421.3489: *5* act
   def act(self):
@@ -401,30 +401,32 @@ class Rect:
 class Scheduler:
   #@+others
   #@+node:peckj.20130920123421.3485: *4* __init__
-  def __init__(self, q=[]):
-    self.q = q
-    self.sort()
+  def __init__(self, schedule={}, ticks=-1L, tracked=[]):
+    self.schedule = schedule
+    self.tracked = tracked
+    self.ticks = ticks
   #@+node:peckj.20130920123421.3490: *4* tick
   def tick(self):
-    #actor = heapq.heappop(self.q)[1]
-    actor = self.q.pop(0)[1]
-    actor.act()
-    self.push(actor)
-    
-    
+    #print self.ticks
+    actors = []
+    while actors == []:
+      actors = self.schedule.pop(self.ticks, [])
+      self.ticks += 1
+    #print actors
+    for a in actors:
+      a.act()
+      self.push(a)
   #@+node:peckj.20130920123421.3493: *4* remove
   def remove(self, actor):
-    self.q.remove((actor.time, actor))
-    self.sort()
+    if actor not in self.tracked:
+      return
+    for x in self.schedule:
+      if actor in self.schedule[x]:
+        self.schedule[x].remove(actor)
   #@+node:peckj.20130920123421.3491: *4* push
   def push(self, actor):
-    #heapq.heappush(self.q, (actor.time, actor))
-    self.q.append((actor.time, actor))
-    self.q.sort()
-  #@+node:peckj.20130920123421.3497: *4* sort
-  def sort(self):
-    #heapq.heapify(self.q)
-    self.q.sort()
+    self.schedule.setdefault(self.ticks + actor.time, []).append(actor)
+    if actor not in self.tracked: self.tracked.append(actor)
   #@-others
 #@+node:peckj.20130917090235.2666: ** helper functions
 #@+node:peckj.20130918082920.2713: *3* mapping
@@ -816,7 +818,9 @@ def target_monster(max_range=None):
         return obj
 #@+node:peckj.20130917090235.2653: *4* handle_keys
 def handle_keys():
-  global fov_recompute, key
+  global fov_recompute#, key
+
+  key = libtcod.console_wait_for_keypress(True)
 
   if key.vk == libtcod.KEY_ENTER and key.lalt:
     # lalt+enter = fullscreen
@@ -954,7 +958,7 @@ def new_game():
   # create player
   fighter_component = Fighter(hp=100, defense=1, power=2, xp=0, death_function=player_death)
   player_component = Player(level=1)
-  actor_component = Actor(speed=5, act_function=player_take_action, time=-1)
+  actor_component = Actor(speed=5, act_function=player_take_action, time=0)
   player = Object(0, 0, '@', 'player', libtcod.white, blocks=True, fighter=fighter_component, player=player_component, actor=actor_component)
   
   # generate map
@@ -970,7 +974,7 @@ def new_game():
   
   # messages
   game_msgs = []
-  message('Welcome stranger! Prepare to parish in the Tomps of the Ancient Kings.', libtcod.red)
+  message('Welcome stranger! Prepare to parish in the Tombs of the Ancient Kings.', libtcod.red)
 
   # equip the player
   equipment_component = Equipment(slot='right hand', power_bonus=2)
@@ -980,8 +984,11 @@ def new_game():
   obj.always_visible = True
   
   # set up the scheduler
-  l = [(obj.actor.time, obj.actor) for obj in objects if obj.actor is not None] 
-  scheduler = Scheduler(q=l)
+  scheduler = Scheduler()
+  for a in objects:
+    if a.actor is not None:
+      scheduler.push(a.actor)
+  
 #@+node:peckj.20130918082920.2733: *4* initialize_fov
 def initialize_fov():
   global fov_recompute, fov_map
@@ -1015,11 +1022,6 @@ def play_game():
     if game_state == 'exit':
       save_game()
       break
-    
-    #if game_state == 'playing' and player_action != 'didnt-take-turn':
-    #  for object in objects:
-    #    if object.ai:
-    #      object.ai.take_turn()
 #@+node:peckj.20130918082920.2738: *4* save_game
 def save_game():
   file = shelve.open('savegame', 'n')
