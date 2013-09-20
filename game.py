@@ -71,11 +71,44 @@ CHARACTER_SCREEN_WIDTH = 30
 
 #@+others
 #@+node:peckj.20130917090235.2664: ** classes
+#@+node:peckj.20130920123421.3477: *3* Player class
+class Player:
+  #@+others
+  #@+node:peckj.20130920123421.3478: *4* __init__
+  def __init__(self, level=0):
+    self.level = level
+  #@+node:peckj.20130920123421.3480: *4* check_level_up
+  def check_level_up(self):
+    level_up_xp = LEVEL_UP_BASE + self.level * LEVEL_UP_FACTOR
+    if self.owner.fighter.xp >= level_up_xp:
+      self.level_up()
+  #@+node:peckj.20130920123421.3481: *4* level_up
+  def level_up(self):
+    level_up_xp = LEVEL_UP_BASE + self.level * LEVEL_UP_FACTOR
+    self.level += 1
+    self.owner.fighter.xp -= level_up_xp
+    message('Your battle skills grow stronger! You reached level ' + str(self.level) + '!', libtcod.yellow)
+    
+    choice = None
+    while choice == None:
+      choice = menu('Level up! Choose a stat to raise:\n',
+        ['Constitution (+20 HP, from ' + str(self.owner.fighter.max_hp) + ')',
+         'Strength (+1 attack, from ' + str(self.owner.fighter.power) + ')',
+         'Agility (+1 defense, from ' + str(self.owner.fighter.defense) + ')'], LEVEL_SCREEN_WIDTH)
+    if choice == 0:
+      player.fighter.base_max_hp += 20
+      player.fighter.hp += 20
+    elif choice == 1:
+      player.fighter.base_power += 1
+    elif choice == 2:
+      player.fighter.base_defense += 1
+  #@-others
+  
 #@+node:peckj.20130917090235.2654: *3* Object class
 class Object:
   #@+others
   #@+node:peckj.20130917090235.2655: *4* __init__
-  def __init__(self, x, y, char, name, color, blocks=False, always_visible=False, fighter=None, ai=None, item=None, equipment=None):
+  def __init__(self, x, y, char, name, color, blocks=False, always_visible=False, player=None, fighter=None, ai=None, item=None, equipment=None):
     self.blocks = blocks
     self.name = name
     self.x = x
@@ -101,6 +134,10 @@ class Object:
       self.equipment.owner = self
       self.item = Item()
       self.item.owner = self
+    
+    self.player = player
+    if self.player:
+      self.player.owner = self
   #@+node:peckj.20130917090235.2656: *4* move
   def move(self, dx, dy):
     newx = self.x + dx
@@ -755,8 +792,8 @@ def handle_keys():
         if stairs.x == player.x and stairs.y == player.y:
           next_level()
       if key_char == 'c':
-        level_up_xp = LEVEL_UP_BASE + player.level * LEVEL_UP_FACTOR
-        msgbox('Character Information\n\nLevel: ' + str(player.level) + '\nExperience: ' + str(player.fighter.xp) +
+        level_up_xp = LEVEL_UP_BASE + player.player.level * LEVEL_UP_FACTOR
+        msgbox('Character Information\n\nLevel: ' + str(player.player.level) + '\nExperience: ' + str(player.fighter.xp) +
                '\nExperience to level up: ' + str(level_up_xp) + '\n\nMaximum HP: ' + str(player.fighter.max_hp) +
                '\nAttack: ' + str(player.fighter.power) + '\nDefense: ' + str(player.fighter.defense), CHARACTER_SCREEN_WIDTH)
       return 'didnt-take-turn'
@@ -826,8 +863,8 @@ def new_game():
   
   # create player
   fighter_component = Fighter(hp=100, defense=1, power=2, xp=0, death_function=player_death)
-  player = Object(0, 0, '@', 'player', libtcod.white, blocks=True, fighter=fighter_component)
-  player.level = 1
+  player_component = Player(level=1)
+  player = Object(0, 0, '@', 'player', libtcod.white, blocks=True, fighter=fighter_component, player=player_component)
   
   # generate map
   dungeon_level = 1
@@ -873,7 +910,7 @@ def play_game():
     render_all()
     
     libtcod.console_flush()
-    check_level_up()
+    player.player.check_level_up()
     
     for object in objects:
       object.clear()
@@ -925,27 +962,6 @@ def next_level():
   make_map()
   initialize_fov()
 #@+node:peckj.20130918082920.2743: *3* character advancement
-#@+node:peckj.20130918082920.2744: *4* check_level_up
-def check_level_up():
-  level_up_xp = LEVEL_UP_BASE + player.level * LEVEL_UP_FACTOR
-  if player.fighter.xp >= level_up_xp:
-    player.level += 1
-    player.fighter.xp -= level_up_xp
-    message('Your battle skills grow stronger! You reached level ' + str(player.level) + '!', libtcod.yellow)
-    
-    choice = None
-    while choice == None:
-      choice = menu('Level up! Choose a stat to raise:\n',
-        ['Constitution (+20 HP, from ' + str(player.fighter.max_hp) + ')',
-         'Strength (+1 attack, from ' + str(player.fighter.power) + ')',
-         'Agility (+1 defense, from ' + str(player.fighter.defense) + ')'], LEVEL_SCREEN_WIDTH)
-    if choice == 0:
-      player.fighter.base_max_hp += 20
-      player.fighter.hp += 20
-    elif choice == 1:
-      player.fighter.base_power += 1
-    elif choice == 2:
-      player.fighter.base_defense += 1
 #@+node:peckj.20130917090235.2651: ** setup
 # set custom font
 libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
