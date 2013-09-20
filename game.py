@@ -8,6 +8,7 @@ import libtcodpy as libtcod
 import math
 import textwrap
 import shelve
+#import heapq
 #@-<< imports >>
 #@+<< definitions >>
 #@+node:peckj.20130917090235.2650: ** << definitions >>
@@ -23,10 +24,10 @@ MAP_WIDTH = 80
 MAP_HEIGHT = 43
 #@+node:peckj.20130917090235.2667: *3* color scheme
 # color scheme
-color_dark_wall = libtcod.Color(0, 0, 100)
-color_light_wall = libtcod.Color(130, 110, 50)
-color_dark_ground = libtcod.Color(50, 50, 150)
-color_light_ground = libtcod.Color(200, 180, 50)
+color_dark_wall = libtcod.dark_grey
+color_light_wall = libtcod.light_grey
+color_dark_ground = libtcod.darker_orange
+color_light_ground = libtcod.dark_orange
 #@+node:peckj.20130917090235.2677: *3* dungeon generation
 ROOM_MAX_SIZE = 10
 ROOM_MIN_SIZE = 6
@@ -66,49 +67,18 @@ LEVEL_UP_FACTOR = 150
 LEVEL_SCREEN_WIDTH = 40
 
 CHARACTER_SCREEN_WIDTH = 30
+#@+node:peckj.20130920123421.3486: *3* scheduler stuff
+MAX_SCHEDULER_TICKS = 100
 #@-others
 #@-<< definitions >>
 
 #@+others
 #@+node:peckj.20130917090235.2664: ** classes
-#@+node:peckj.20130920123421.3477: *3* Player class
-class Player:
-  #@+others
-  #@+node:peckj.20130920123421.3478: *4* __init__
-  def __init__(self, level=0):
-    self.level = level
-  #@+node:peckj.20130920123421.3480: *4* check_level_up
-  def check_level_up(self):
-    level_up_xp = LEVEL_UP_BASE + self.level * LEVEL_UP_FACTOR
-    if self.owner.fighter.xp >= level_up_xp:
-      self.level_up()
-  #@+node:peckj.20130920123421.3481: *4* level_up
-  def level_up(self):
-    level_up_xp = LEVEL_UP_BASE + self.level * LEVEL_UP_FACTOR
-    self.level += 1
-    self.owner.fighter.xp -= level_up_xp
-    message('Your battle skills grow stronger! You reached level ' + str(self.level) + '!', libtcod.yellow)
-    
-    choice = None
-    while choice == None:
-      choice = menu('Level up! Choose a stat to raise:\n',
-        ['Constitution (+20 HP, from ' + str(self.owner.fighter.max_hp) + ')',
-         'Strength (+1 attack, from ' + str(self.owner.fighter.power) + ')',
-         'Agility (+1 defense, from ' + str(self.owner.fighter.defense) + ')'], LEVEL_SCREEN_WIDTH)
-    if choice == 0:
-      player.fighter.base_max_hp += 20
-      player.fighter.hp += 20
-    elif choice == 1:
-      player.fighter.base_power += 1
-    elif choice == 2:
-      player.fighter.base_defense += 1
-  #@-others
-  
 #@+node:peckj.20130917090235.2654: *3* Object class
 class Object:
   #@+others
   #@+node:peckj.20130917090235.2655: *4* __init__
-  def __init__(self, x, y, char, name, color, blocks=False, always_visible=False, player=None, fighter=None, ai=None, item=None, equipment=None):
+  def __init__(self, x, y, char, name, color, blocks=False, always_visible=False, player=None, fighter=None, actor=None, ai=None, item=None, equipment=None):
     self.blocks = blocks
     self.name = name
     self.x = x
@@ -138,6 +108,10 @@ class Object:
     self.player = player
     if self.player:
       self.player.owner = self
+    
+    self.actor = actor
+    if self.actor:
+      self.actor.owner = self
   #@+node:peckj.20130917090235.2656: *4* move
   def move(self, dx, dy):
     newx = self.x + dx
@@ -180,6 +154,216 @@ class Object:
   def clear(self):
     libtcod.console_put_char(con, self.x, self.y, ' ', libtcod.BKGND_NONE)
   #@-others
+#@+node:peckj.20130920123421.3482: *3* Component classes
+#@+node:peckj.20130920123421.3483: *4* AI components
+#@+node:peckj.20130918082920.2688: *5* BasicMonster class
+class BasicMonster:
+  #@+others
+  #@+node:peckj.20130918082920.2689: *6* take_turn
+  def take_turn(self):
+    monster = self.owner
+    if libtcod.map_is_in_fov(fov_map, monster.x, monster.y):
+      if monster.distance_to(player) >= 2:
+        monster.move_towards(player.x, player.y)
+      elif player.fighter.hp > 0:
+        monster.fighter.attack(player)
+  #@-others
+  
+#@+node:peckj.20130918082920.2723: *5* ConfusedMonster class
+class ConfusedMonster:
+  #@+others
+  #@+node:peckj.20130918082920.2725: *6* __init__
+  def __init__(self, old_ai, num_turns=CONFUSE_NUM_TURNS):
+    self.old_ai = old_ai
+    self.num_turns = num_turns
+  #@+node:peckj.20130918082920.2724: *6* take_turn
+  def take_turn(self):
+    if self.num_turns > 0:
+      self.owner.move(libtcod.random_get_int(0, -1, 1), libtcod.random_get_int(0, -1, 1))
+      self.num_turns -= 1
+    else:
+      self.owner.ai = self.old_ai
+      message('The ' + self.owner.name + ' is no longer confused!', libtcod.red)
+  #@-others
+  
+#@+node:peckj.20130920123421.3477: *4* Player class
+class Player:
+  #@+others
+  #@+node:peckj.20130920123421.3478: *5* __init__
+  def __init__(self, level=0):
+    self.level = level
+  #@+node:peckj.20130920123421.3480: *5* check_level_up
+  def check_level_up(self):
+    level_up_xp = LEVEL_UP_BASE + self.level * LEVEL_UP_FACTOR
+    if self.owner.fighter.xp >= level_up_xp:
+      self.level_up()
+  #@+node:peckj.20130920123421.3481: *5* level_up
+  def level_up(self):
+    level_up_xp = LEVEL_UP_BASE + self.level * LEVEL_UP_FACTOR
+    self.level += 1
+    self.owner.fighter.xp -= level_up_xp
+    message('Your battle skills grow stronger! You reached level ' + str(self.level) + '!', libtcod.yellow)
+    
+    choice = None
+    while choice == None:
+      choice = menu('Level up! Choose a stat to raise:\n',
+        ['Constitution (+20 HP, from ' + str(self.owner.fighter.max_hp) + ')',
+         'Strength (+1 attack, from ' + str(self.owner.fighter.power) + ')',
+         'Agility (+1 defense, from ' + str(self.owner.fighter.defense) + ')'], LEVEL_SCREEN_WIDTH)
+    if choice == 0:
+      player.fighter.base_max_hp += 20
+      player.fighter.hp += 20
+    elif choice == 1:
+      player.fighter.base_power += 1
+    elif choice == 2:
+      player.fighter.base_defense += 1
+  #@-others
+  
+#@+node:peckj.20130918082920.2686: *4* Fighter class
+class Fighter:
+  #@+others
+  #@+node:peckj.20130918082920.2687: *5* __init__
+  def __init__(self, hp, defense, power, xp, death_function=None):
+    self.base_max_hp = hp
+    self.hp = hp
+    self.base_defense = defense
+    self.base_power = power
+    self.xp = xp
+    self.death_function = death_function
+  #@+node:peckj.20130918082920.2692: *5* take_damage
+  def take_damage(self, damage):
+    if damage > 0:
+      self.hp -= damage
+    if self.hp <= 0:
+      function = self.death_function
+      if function is not None:
+        function(self.owner)
+      if self.owner != player:
+        player.fighter.xp += self.xp
+  #@+node:peckj.20130918082920.2693: *5* attack
+  def attack(self, target):
+    damage = self.power - target.fighter.defense
+    if damage > 0:
+      message(self.owner.name.capitalize() + ' attacks ' + target.name + ' for ' + str(damage) + ' hit points.')
+      target.fighter.take_damage(damage)
+    else:
+      message(self.owner.name.capitalize() + ' attacks ' + target.name + ' but it has no effect!')
+  #@+node:peckj.20130918082920.2712: *5* heal
+  def heal(self, amount):
+    self.hp += amount
+    if self.hp > self.max_hp:
+      self.hp = self.max_hp
+  #@+node:peckj.20130919090559.2751: *5* power
+  @property
+  def power(self):
+    bonus = sum(equipment.power_bonus for equipment in get_all_equipped(self.owner))
+    return self.base_power + bonus
+  #@+node:peckj.20130919090559.2753: *5* defense
+  @property
+  def defense(self):
+    bonus = sum(equipment.defense_bonus for equipment in get_all_equipped(self.owner))
+    return self.base_defense + bonus
+  #@+node:peckj.20130919090559.2754: *5* max_hp
+  @property
+  def max_hp(self):
+    bonus = sum(equipment.max_hp_bonus for equipment in get_all_equipped(self.owner))
+    return self.base_max_hp + bonus
+  #@-others
+#@+node:peckj.20130920123421.3487: *4* Actor class
+class Actor:
+  #@+others
+  #@+node:peckj.20130920123421.3488: *5* __init__
+  def __init__(self, speed=0, act_function=None, time=0):
+    self.speed = speed
+    self.time = 0
+    self.act_function = act_function
+  #@+node:peckj.20130920123421.3489: *5* act
+  def act(self):
+    function = self.act_function
+    if function is None:
+      return True # prevent lockups forever
+    if function is not None:
+      result = function(self.owner)
+    if result:
+      ticks = MAX_SCHEDULER_TICKS - self.speed
+      self.time += self.speed
+    return result
+  #@+node:peckj.20130920123421.3492: *5* __cmp__
+  def __cmp__(self, other):
+    if self.time < other.time:
+      return -1
+    elif self.time == other.time:
+      return 0
+    else:
+      return 1
+  #@-others
+#@+node:peckj.20130918082920.2702: *4* Item class
+class Item:
+  #@+others
+  #@+node:peckj.20130918082920.2707: *5* __init__
+  def __init__(self, use_function=None):
+    self.use_function = use_function
+  #@+node:peckj.20130918082920.2703: *5* pick_up
+  def pick_up(self):
+    if len(inventory) >= 26:
+      message('Your inventory is full, cannot pick up ' + self.owner.name + '.', libtcod.red)
+    else:
+      inventory.append(self.owner)
+      objects.remove(self.owner)
+      message('You picked up a ' + self.owner.name + '!', libtcod.green)
+      equipment = self.owner.equipment
+      if equipment and get_equipped_in_slot(equipment.slot) is None:
+        equipment.equip()
+  #@+node:peckj.20130918082920.2731: *5* drop
+  def drop(self):
+    objects.append(self.owner)
+    inventory.remove(self.owner)
+    self.owner.x = player.x
+    self.owner.y = player.y
+    message('You dropped a ' + self.owner.name + '.', libtcod.yellow)
+    if self.owner.equipment:
+      self.owner.equipment.dequip()
+  #@+node:peckj.20130918082920.2710: *5* use
+  def use(self):
+    if self.owner.equipment:
+      self.owner.equipment.toggle_equip()
+      return
+    if self.use_function is None:
+      message('The ' + self.owner.name + ' cannot be used.')
+    else:
+      if self.use_function() != 'cancelled':
+        inventory.remove(self.owner)
+  #@-others
+  
+#@+node:peckj.20130919090559.2745: *4* Equipment class
+class Equipment:
+  #@+others
+  #@+node:peckj.20130919090559.2746: *5* __init__
+  def __init__(self, slot, power_bonus=0, defense_bonus=0, max_hp_bonus=0):
+    self.power_bonus = power_bonus
+    self.defense_bonus = defense_bonus
+    self.max_hp_bonus = max_hp_bonus
+    self.slot = slot
+    self.is_equipped = False
+  #@+node:peckj.20130919090559.2747: *5* toggle_equip
+  def toggle_equip(self):
+    if self.is_equipped:
+      self.dequip()
+    else:
+      self.equip()
+  #@+node:peckj.20130919090559.2748: *5* equip
+  def equip(self):
+    old_equipment = get_equipped_in_slot(self.slot)
+    if old_equipment is not None:
+      old_equipment.dequip()
+    self.is_equipped = True
+    message('Equipped ' + self.owner.name + ' on ' + self.slot + '.', libtcod.light_green)
+  #@+node:peckj.20130919090559.2749: *5* dequip
+  def dequip(self):
+    if not self.is_equipped: return
+    self.is_equipped = False
+    message('Dequipped ' + self.owner.name + ' from ' + self.slot + '.', libtcod.light_yellow)
+  #@-others
 #@+node:peckj.20130917090235.2659: *3* Tile class
 class Tile:
   #@+others
@@ -213,152 +397,34 @@ class Rect:
     return (self.x1 <= other.x2 and self.x2 >= other.x1 and
             self.y1 <= other.y2 and self.y2 >= other.y1)
   #@-others
-#@+node:peckj.20130918082920.2686: *3* Fighter class
-class Fighter:
+#@+node:peckj.20130920123421.3484: *3* Scheduler class
+class Scheduler:
   #@+others
-  #@+node:peckj.20130918082920.2687: *4* __init__
-  def __init__(self, hp, defense, power, xp, death_function=None):
-    self.base_max_hp = hp
-    self.hp = hp
-    self.base_defense = defense
-    self.base_power = power
-    self.xp = xp
-    self.death_function = death_function
-  #@+node:peckj.20130918082920.2692: *4* take_damage
-  def take_damage(self, damage):
-    if damage > 0:
-      self.hp -= damage
-    if self.hp <= 0:
-      function = self.death_function
-      if function is not None:
-        function(self.owner)
-      if self.owner != player:
-        player.fighter.xp += self.xp
-  #@+node:peckj.20130918082920.2693: *4* attack
-  def attack(self, target):
-    damage = self.power - target.fighter.defense
-    if damage > 0:
-      message(self.owner.name.capitalize() + ' attacks ' + target.name + ' for ' + str(damage) + ' hit points.')
-      target.fighter.take_damage(damage)
-    else:
-      message(self.owner.name.capitalize() + ' attacks ' + target.name + ' but it has no effect!')
-  #@+node:peckj.20130918082920.2712: *4* heal
-  def heal(self, amount):
-    self.hp += amount
-    if self.hp > self.max_hp:
-      self.hp = self.max_hp
-  #@+node:peckj.20130919090559.2751: *4* power
-  @property
-  def power(self):
-    bonus = sum(equipment.power_bonus for equipment in get_all_equipped(self.owner))
-    return self.base_power + bonus
-  #@+node:peckj.20130919090559.2753: *4* defense
-  @property
-  def defense(self):
-    bonus = sum(equipment.defense_bonus for equipment in get_all_equipped(self.owner))
-    return self.base_defense + bonus
-  #@+node:peckj.20130919090559.2754: *4* max_hp
-  @property
-  def max_hp(self):
-    bonus = sum(equipment.max_hp_bonus for equipment in get_all_equipped(self.owner))
-    return self.base_max_hp + bonus
-  #@-others
-#@+node:peckj.20130918082920.2688: *3* BasicMonster class
-class BasicMonster:
-  #@+others
-  #@+node:peckj.20130918082920.2689: *4* take_turn
-  def take_turn(self):
-    monster = self.owner
-    if libtcod.map_is_in_fov(fov_map, monster.x, monster.y):
-      if monster.distance_to(player) >= 2:
-        monster.move_towards(player.x, player.y)
-      elif player.fighter.hp > 0:
-        monster.fighter.attack(player)
-  #@-others
-  
-#@+node:peckj.20130918082920.2723: *3* ConfusedMonster class
-class ConfusedMonster:
-  #@+others
-  #@+node:peckj.20130918082920.2725: *4* __init__
-  def __init__(self, old_ai, num_turns=CONFUSE_NUM_TURNS):
-    self.old_ai = old_ai
-    self.num_turns = num_turns
-  #@+node:peckj.20130918082920.2724: *4* take_turn
-  def take_turn(self):
-    if self.num_turns > 0:
-      self.owner.move(libtcod.random_get_int(0, -1, 1), libtcod.random_get_int(0, -1, 1))
-      self.num_turns -= 1
-    else:
-      self.owner.ai = self.old_ai
-      message('The ' + self.owner.name + ' is no longer confused!', libtcod.red)
-  #@-others
-  
-#@+node:peckj.20130918082920.2702: *3* Item class
-class Item:
-  #@+others
-  #@+node:peckj.20130918082920.2707: *4* __init__
-  def __init__(self, use_function=None):
-    self.use_function = use_function
-  #@+node:peckj.20130918082920.2703: *4* pick_up
-  def pick_up(self):
-    if len(inventory) >= 26:
-      message('Your inventory is full, cannot pick up ' + self.owner.name + '.', libtcod.red)
-    else:
-      inventory.append(self.owner)
-      objects.remove(self.owner)
-      message('You picked up a ' + self.owner.name + '!', libtcod.green)
-      equipment = self.owner.equipment
-      if equipment and get_equipped_in_slot(equipment.slot) is None:
-        equipment.equip()
-  #@+node:peckj.20130918082920.2731: *4* drop
-  def drop(self):
-    objects.append(self.owner)
-    inventory.remove(self.owner)
-    self.owner.x = player.x
-    self.owner.y = player.y
-    message('You dropped a ' + self.owner.name + '.', libtcod.yellow)
-    if self.owner.equipment:
-      self.owner.equipment.dequip()
-  #@+node:peckj.20130918082920.2710: *4* use
-  def use(self):
-    if self.owner.equipment:
-      self.owner.equipment.toggle_equip()
-      return
-    if self.use_function is None:
-      message('The ' + self.owner.name + ' cannot be used.')
-    else:
-      if self.use_function() != 'cancelled':
-        inventory.remove(self.owner)
-  #@-others
-  
-#@+node:peckj.20130919090559.2745: *3* Equipment class
-class Equipment:
-  #@+others
-  #@+node:peckj.20130919090559.2746: *4* __init__
-  def __init__(self, slot, power_bonus=0, defense_bonus=0, max_hp_bonus=0):
-    self.power_bonus = power_bonus
-    self.defense_bonus = defense_bonus
-    self.max_hp_bonus = max_hp_bonus
-    self.slot = slot
-    self.is_equipped = False
-  #@+node:peckj.20130919090559.2747: *4* toggle_equip
-  def toggle_equip(self):
-    if self.is_equipped:
-      self.dequip()
-    else:
-      self.equip()
-  #@+node:peckj.20130919090559.2748: *4* equip
-  def equip(self):
-    old_equipment = get_equipped_in_slot(self.slot)
-    if old_equipment is not None:
-      old_equipment.dequip()
-    self.is_equipped = True
-    message('Equipped ' + self.owner.name + ' on ' + self.slot + '.', libtcod.light_green)
-  #@+node:peckj.20130919090559.2749: *4* dequip
-  def dequip(self):
-    if not self.is_equipped: return
-    self.is_equipped = False
-    message('Dequipped ' + self.owner.name + ' from ' + self.slot + '.', libtcod.light_yellow)
+  #@+node:peckj.20130920123421.3485: *4* __init__
+  def __init__(self, q=[]):
+    self.q = q
+    self.sort()
+  #@+node:peckj.20130920123421.3490: *4* tick
+  def tick(self):
+    #actor = heapq.heappop(self.q)[1]
+    actor = self.q.pop(0)[1]
+    actor.act()
+    self.push(actor)
+    
+    
+  #@+node:peckj.20130920123421.3493: *4* remove
+  def remove(self, actor):
+    self.q.remove((actor.time, actor))
+    self.sort()
+  #@+node:peckj.20130920123421.3491: *4* push
+  def push(self, actor):
+    #heapq.heappush(self.q, (actor.time, actor))
+    self.q.append((actor.time, actor))
+    self.q.sort()
+  #@+node:peckj.20130920123421.3497: *4* sort
+  def sort(self):
+    #heapq.heapify(self.q)
+    self.q.sort()
   #@-others
 #@+node:peckj.20130917090235.2666: ** helper functions
 #@+node:peckj.20130918082920.2713: *3* mapping
@@ -460,14 +526,17 @@ def place_objects(room):
         #create an orc
         fighter_component = Fighter(hp=20, defense=0, power=4, xp=35, death_function=monster_death)
         ai_component = BasicMonster()
-        monster = Object(x, y, 'o', 'orc', libtcod.desaturated_green, blocks=True, fighter=fighter_component, ai=ai_component)
+        actor_component = Actor(speed=2, act_function=monster_take_action)
+        monster = Object(x, y, 'o', 'orc', libtcod.desaturated_green, blocks=True, fighter=fighter_component, ai=ai_component, actor=actor_component)
       elif choice == 'troll':
         #create a troll
         fighter_component = Fighter(hp=30, defense=2, power=8, xp=100, death_function=monster_death)
         ai_component = BasicMonster()
-        monster = Object(x, y, 'T', 'troll', libtcod.darker_green, blocks=True, fighter=fighter_component, ai=ai_component)
+        actor_component = Actor(speed=5, act_function=monster_take_action)
+        monster = Object(x, y, 'T', 'troll', libtcod.darker_green, blocks=True, fighter=fighter_component, ai=ai_component, actor=actor_component)
   
       objects.append(monster)
+      
   
   num_items = libtcod.random_get_int(0, 0, max_items)
   for i in range(num_items):
@@ -673,6 +742,7 @@ def cast_fireball():
 #@+node:peckj.20130918082920.2717: *3* ai
 #@+node:peckj.20130918082920.2695: *4* monster_death
 def monster_death(monster):
+  global scheduler
   message(monster.name.capitalize() + ' is dead! You gain ' + str(monster.fighter.xp) + ' experience points.', libtcod.orange)
   monster.char = '%'
   monster.color = libtcod.dark_red
@@ -681,6 +751,8 @@ def monster_death(monster):
   monster.ai = None
   monster.name = 'remains of ' + monster.name
   monster.send_to_back()
+  scheduler.remove(monster.actor)
+  monster.actor = None
 #@+node:peckj.20130918082920.2694: *4* player_death
 def player_death(player):
   global game_state
@@ -689,6 +761,8 @@ def player_death(player):
   
   player.char = '%'
   player.color = libtcod.dark_red
+  scheduler.remove(player.actor)
+  player.actor = None
 #@+node:peckj.20130918082920.2718: *3* query
 #@+node:peckj.20130917203908.2680: *4* is_blocked
 def is_blocked(x, y):
@@ -834,6 +908,22 @@ def get_all_equipped(obj):
     return equipped_list
   else:
     return []
+#@+node:peckj.20130920123421.3494: *4* player_take_action
+def player_take_action(self):
+  global game_state, player_action
+  player_action = handle_keys()
+  if player_action == 'exit':
+    game_state = 'exit'
+    return True
+    
+  if game_state == 'playing' and player_action == 'didnt-take-turn':
+    return False
+  
+  return True
+#@+node:peckj.20130920123421.3496: *4* monster_take_action
+def monster_take_action(self):
+  self.ai.take_turn()
+  return True
 #@+node:peckj.20130918082920.2734: *3* game loop
 #@+node:peckj.20130919090559.2744: *4* from_dungeon_level
 def from_dungeon_level(table):
@@ -859,12 +949,13 @@ def random_choice(chances_dict):
   
 #@+node:peckj.20130918082920.2732: *4* new_game
 def new_game():
-  global player, inventory, game_msgs, game_state, dungeon_level
+  global player, inventory, game_msgs, game_state, dungeon_level, scheduler
   
   # create player
   fighter_component = Fighter(hp=100, defense=1, power=2, xp=0, death_function=player_death)
   player_component = Player(level=1)
-  player = Object(0, 0, '@', 'player', libtcod.white, blocks=True, fighter=fighter_component, player=player_component)
+  actor_component = Actor(speed=5, act_function=player_take_action, time=-1)
+  player = Object(0, 0, '@', 'player', libtcod.white, blocks=True, fighter=fighter_component, player=player_component, actor=actor_component)
   
   # generate map
   dungeon_level = 1
@@ -887,6 +978,10 @@ def new_game():
   inventory.append(obj)
   equipment_component.equip()
   obj.always_visible = True
+  
+  # set up the scheduler
+  l = [(obj.actor.time, obj.actor) for obj in objects if obj.actor is not None] 
+  scheduler = Scheduler(q=l)
 #@+node:peckj.20130918082920.2733: *4* initialize_fov
 def initialize_fov():
   global fov_recompute, fov_map
@@ -915,15 +1010,16 @@ def play_game():
     for object in objects:
       object.clear()
     
-    player_action = handle_keys()
-    if player_action == 'exit':
+    scheduler.tick()
+    
+    if game_state == 'exit':
       save_game()
       break
     
-    if game_state == 'playing' and player_action != 'didnt-take-turn':
-      for object in objects:
-        if object.ai:
-          object.ai.take_turn()
+    #if game_state == 'playing' and player_action != 'didnt-take-turn':
+    #  for object in objects:
+    #    if object.ai:
+    #      object.ai.take_turn()
 #@+node:peckj.20130918082920.2738: *4* save_game
 def save_game():
   file = shelve.open('savegame', 'n')
@@ -961,7 +1057,6 @@ def next_level():
   dungeon_level += 1
   make_map()
   initialize_fov()
-#@+node:peckj.20130918082920.2743: *3* character advancement
 #@+node:peckj.20130917090235.2651: ** setup
 # set custom font
 libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
