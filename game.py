@@ -281,9 +281,10 @@ class Actor:
   #@+node:peckj.20130920123421.3489: *5* act
   def act(self):
     function = self.act_function
-    print 'acting'
-    print 'scheduler.ticks: %s' % scheduler.ticks
+    #print 'acting'
+    #print 'scheduler.ticks: %s' % scheduler.ticks
     if function is None or not self.active:
+      #print 'Inactive'
       return True # prevent lockups forever
     if function is not None:
       result = function(self.owner)
@@ -405,9 +406,8 @@ class Rect:
 class Scheduler:
   #@+others
   #@+node:peckj.20130920123421.3485: *4* __init__
-  def __init__(self, schedule={}, ticks=-1L, tracked=[]):
+  def __init__(self, schedule={}, ticks=-1L):
     self.schedule = schedule
-    self.tracked = tracked
     self.ticks = ticks
   #@+node:peckj.20130920123421.3490: *4* tick
   def tick(self):
@@ -415,28 +415,16 @@ class Scheduler:
     while actors == []:
       actors = self.schedule.pop(self.ticks, [])
       self.ticks += 1
-    print self.ticks
-    print actors
+    #print self.ticks
+    #print actors
     for a in actors:
       r = a.act()
       while not r:
         r = a.act()
       self.push(a)
-  #@+node:peckj.20130920123421.3493: *4* remove
-  def remove(self, actor):
-    print 'removing %s' % actor.owner.name
-    if actor not in self.tracked:
-      print 'actor not in scheduler'
-      return
-    for s in self.schedule.values():
-      if actor in s:
-        s.remove(actor)
-        print s
-    self.tracked.remove(actor)
   #@+node:peckj.20130920123421.3491: *4* push
   def push(self, actor):
     self.schedule.setdefault(actor.time, []).append(actor)
-    if actor not in self.tracked: self.tracked.append(actor)
   #@-others
 #@+node:peckj.20130917090235.2666: ** helper functions
 #@+node:peckj.20130918082920.2713: *3* mapping
@@ -709,8 +697,9 @@ def main_menu():
     elif choice == 1:
       try:
         load_game()
-      except:
+      except Exception as e:
         msgbox('\n No saved game to load.\n', 24)
+        #print e
         continue
       play_game()
     elif choice == 2:
@@ -755,7 +744,6 @@ def cast_fireball():
 #@+node:peckj.20130918082920.2695: *4* monster_death
 def monster_death(monster):
   global scheduler
-  scheduler.remove(monster.actor)
   monster.actor.active = False
   message(monster.name.capitalize() + ' is dead! You gain ' + str(monster.fighter.xp) + ' experience points.', libtcod.orange)
   monster.char = '%'
@@ -773,7 +761,6 @@ def player_death(player):
   
   player.char = '%'
   player.color = libtcod.dark_red
-  scheduler.remove(player.actor)
   player.actor.active = False
 #@+node:peckj.20130918082920.2718: *3* query
 #@+node:peckj.20130917203908.2680: *4* is_blocked
@@ -830,9 +817,8 @@ def target_monster(max_range=None):
 def handle_keys():
   global fov_recompute, key
   
-  print 'called handle_keys'
-  #key = libtcod.console_wait_for_keypress(True)
-  print 'key = %s' % chr(key.c)
+  #print 'called handle_keys'
+  #print 'key = %s' % chr(key.c)
 
   if key.vk == libtcod.KEY_ENTER and key.lalt:
     # lalt+enter = fullscreen
@@ -841,7 +827,7 @@ def handle_keys():
   elif key.vk == libtcod.KEY_ESCAPE:
     return 'exit' # exit game
     
-  if game_state == 'playing':
+  if game_state == 'playing-waiting-for-input' or game_state == 'dead':
     # movement keys
     if key.vk == libtcod.KEY_UP or key.vk == libtcod.KEY_KP8:
       player_move_or_attack(0, -1)
@@ -926,15 +912,16 @@ def get_all_equipped(obj):
     return []
 #@+node:peckj.20130920123421.3494: *4* player_take_action
 def player_take_action(self):
-  global game_state, player_action
+  global game_state
   
-  player_action = handle_keys()
-  if player_action == 'exit':
-    game_state = 'exit'
-    return True
+  #player_action = handle_keys()
+  #if player_action == 'exit':
+  #  game_state = 'exit'
+  #  return True
     
-  if game_state == 'playing' and player_action == 'didnt-take-turn':
-    return False
+  if game_state == 'playing':
+    game_state = 'playing-waiting-for-input'
+    #print 'game_state (player_take_action): %s' % game_state
   
   return True
 #@+node:peckj.20130920123421.3496: *4* monster_take_action
@@ -997,12 +984,17 @@ def new_game():
   obj.always_visible = True
   
   # set up the scheduler
+  initialize_scheduler()
+  
+#@+node:peckj.20130920172733.2775: *4* initialize_scheduler
+def initialize_scheduler():
+  global scheduler
   scheduler = Scheduler()
-  #scheduler.push(player.actor)
   for a in objects:
     if a.actor is not None:
+      a.actor.time=1
       scheduler.push(a.actor)
-  
+      
 #@+node:peckj.20130918082920.2733: *4* initialize_fov
 def initialize_fov():
   global fov_recompute, fov_map
@@ -1015,14 +1007,14 @@ def initialize_fov():
       libtcod.map_set_properties(fov_map, x, y, not map[x][y].block_sight, not map[x][y].blocked)
 #@+node:peckj.20130918082920.2735: *4* play_game
 def play_game():
-  global key, mouse
+  global key, mouse, game_state
   
   player_action = None
   
   mouse = libtcod.Mouse()
   key = libtcod.Key()
   while not libtcod.console_is_window_closed():
-    #libtcod.sys_check_for_event(libtcod.EVENT_KEY_PRESS|libtcod.EVENT_MOUSE, key, mouse)
+    libtcod.sys_check_for_event(libtcod.EVENT_KEY_PRESS|libtcod.EVENT_MOUSE, key, mouse)
     render_all()
     
     libtcod.console_flush()
@@ -1031,11 +1023,20 @@ def play_game():
     for object in objects:
       object.clear()
     
-    scheduler.tick()
+    #print "game state: %s" % game_state
     
-    if game_state == 'exit':
-      save_game()
-      break
+    if game_state == 'playing-waiting-for-input' or game_state == 'dead':
+      player_action = handle_keys()
+      #print "player_action: %s" % player_action
+    
+      if player_action == 'exit':
+        save_game()
+        break
+      elif player_action is None:
+        game_state = 'playing'
+    
+    if game_state == 'playing':
+      scheduler.tick()
 #@+node:peckj.20130918082920.2738: *4* save_game
 def save_game():
   file = shelve.open('savegame', 'n')
@@ -1047,10 +1048,11 @@ def save_game():
   file['game_state'] = game_state
   file['stairs_index'] = objects.index(stairs)
   file['dungeon_level'] = dungeon_level
+  file['scheduler'] = scheduler
   file.close()
 #@+node:peckj.20130918082920.2739: *4* load_game
 def load_game():
-  global map, objects, player, inventory, game_msgs, game_state, stairs, dungeon_level
+  global map, objects, player, inventory, game_msgs, game_state, stairs, dungeon_level, scheduler
   
   file = shelve.open('savegame', 'r')
   map = file['map']
@@ -1061,18 +1063,22 @@ def load_game():
   game_state = file['game_state']
   stairs = objects[file['stairs_index']]
   dungeon_level = file['dungeon_level']
+  scheduler = file['scheduler']
   file.close()
   
   initialize_fov()
+  initialize_scheduler()
 #@+node:peckj.20130918082920.2741: *4* next_level
 def next_level():
-  global dungeon_level
+  global dungeon_level, objects
   message('You take a moment to rest, and recover your strength.', libtcod.light_violet)
   player.fighter.heal(player.fighter.max_hp / 2)
   message('After a rare moment of peace, you descend deeper into the heart of the dungeon...', libtcod.red)
   dungeon_level += 1
+  objects = [player]
   make_map()
   initialize_fov()
+  initialize_scheduler()
 #@+node:peckj.20130917090235.2651: ** setup
 # set custom font
 libtcod.console_set_custom_font('arial10x10.png', libtcod.FONT_TYPE_GREYSCALE | libtcod.FONT_LAYOUT_TCOD)
