@@ -223,11 +223,33 @@ class Player:
 class Fighter:
   #@+others
   #@+node:peckj.20130918082920.2687: *5* __init__
-  def __init__(self, hp, defense, power, xp, death_function=None):
+  def __init__(self, hp, energy, hd=4, ed=4, hp_recovery=5, energy_recovery=5,
+               defense=0, power=0, magic_resistance=0, magic=0, xp=0, death_function=None):
+    # hp
     self.base_max_hp = hp
     self.hp = hp
+    
+    # energy
+    self.base_max_energy = energy
+    self.energy = energy
+    
+    # hit/energy dice
+    self.hd = hd
+    self.ed = ed
+   
+    # recoveries
+    self.base_hp_recovery = hp_recovery
+    self.base_energy_recovery = energy_recovery
+    
+    # combat stuff - physical
     self.base_defense = defense
     self.base_power = power
+    
+    # combat stuff - magical
+    self.base_magic_resistance = magic_resistance
+    self.base_magic = magic
+    
+    # other
     self.xp = xp
     self.death_function = death_function
   #@+node:peckj.20130918082920.2692: *5* take_damage
@@ -253,21 +275,47 @@ class Fighter:
     self.hp += amount
     if self.hp > self.max_hp:
       self.hp = self.max_hp
-  #@+node:peckj.20130919090559.2751: *5* power
-  @property
-  def power(self):
-    bonus = sum(equipment.power_bonus for equipment in get_all_equipped(self.owner))
-    return self.base_power + bonus
-  #@+node:peckj.20130919090559.2753: *5* defense
-  @property
-  def defense(self):
-    bonus = sum(equipment.defense_bonus for equipment in get_all_equipped(self.owner))
-    return self.base_defense + bonus
-  #@+node:peckj.20130919090559.2754: *5* max_hp
+  #@+node:peckj.20130925095856.4431: *5* properties
+  #@+node:peckj.20130919090559.2754: *6* max_hp
   @property
   def max_hp(self):
     bonus = sum(equipment.max_hp_bonus for equipment in get_all_equipped(self.owner))
     return self.base_max_hp + bonus
+  #@+node:peckj.20130925095856.4435: *6* max_energy
+  @property
+  def max_energy(self):
+    bonus = sum(equipment.max_energy_bonus for equipment in get_all_equipped(self.owner))
+    return self.base_max_energy + bonus
+  #@+node:peckj.20130919090559.2751: *6* power
+  @property
+  def power(self):
+    bonus = sum(equipment.power_bonus for equipment in get_all_equipped(self.owner))
+    return self.base_power + bonus
+  #@+node:peckj.20130919090559.2753: *6* defense
+  @property
+  def defense(self):
+    bonus = sum(equipment.defense_bonus for equipment in get_all_equipped(self.owner))
+    return self.base_defense + bonus
+  #@+node:peckj.20130925095856.4432: *6* magic
+  @property
+  def magic(self):
+    bonus = sum(equipment.magic_bonus for equipment in get_all_equipped(self.owner))
+    return self.base_magic + bonus
+  #@+node:peckj.20130925095856.4433: *6* magic_resistance
+  @property
+  def magic_resistance(self):
+    bonus = sum(equipment.magic_resistance_bonus for equipment in get_all_equipped(self.owner))
+    return self.base_magic_resistance + bonus
+  #@+node:peckj.20130925095856.4434: *6* hp_recovery
+  @property
+  def hp_recovery(self):
+    bonus = sum(equipment.hp_recovery_bonus for equipment in get_all_equipped(self.owner))
+    return self.base_hp_recovery + bonus
+  #@+node:peckj.20130925095856.4437: *6* energy_recovery
+  @property
+  def energy_recovery(self):
+    bonus = sum(equipment.energy_recovery_bonus for equipment in get_all_equipped(self.owner))
+    return self.base_energy_recovery + bonus
   #@-others
 #@+node:peckj.20130920123421.3487: *4* Actor class
 class Actor:
@@ -294,13 +342,15 @@ class Actor:
       #print "new time: %s" % self.time
     return result
   #@+node:peckj.20130920123421.3492: *5* __cmp__
-  def __cmp__(self, other):
-    if self.time < other.time:
-      return -1
-    elif self.time == other.time:
-      return 0
-    else:
-      return 1
+  #@+at
+  # def __cmp__(self, other):
+  #   if self.time < other.time:
+  #     return -1
+  #   elif self.time == other.time:
+  #     return 0
+  #   else:
+  #     return 1
+  #@@c
   #@-others
 #@+node:peckj.20130918082920.2702: *4* Item class
 class Item:
@@ -344,10 +394,16 @@ class Item:
 class Equipment:
   #@+others
   #@+node:peckj.20130919090559.2746: *5* __init__
-  def __init__(self, slot, power_bonus=0, defense_bonus=0, max_hp_bonus=0):
+  def __init__(self, slot, power_bonus=0, defense_bonus=0, max_hp_bonus=0, max_energy_bonus=0,
+               magic_bonus=0, magic_resistance_bonus=0, hp_recovery_bonus=0, energy_recovery_bonus=0):
     self.power_bonus = power_bonus
     self.defense_bonus = defense_bonus
     self.max_hp_bonus = max_hp_bonus
+    self.max_energy_bonus = max_energy_bonus
+    self.magic_bonus = magic_bonus
+    self.magic_resistance_bonus = magic_resistance_bonus
+    self.hp_recovery_bonus = hp_recovery_bonus
+    self.energy_recovery_bonus = energy_recovery_bonus
     self.slot = slot
     self.is_equipped = False
   #@+node:peckj.20130919090559.2747: *5* toggle_equip
@@ -743,7 +799,6 @@ def cast_fireball():
 #@+node:peckj.20130918082920.2717: *3* ai
 #@+node:peckj.20130918082920.2695: *4* monster_death
 def monster_death(monster):
-  global scheduler
   monster.actor.active = False
   message(monster.name.capitalize() + ' is dead! You gain ' + str(monster.fighter.xp) + ' experience points.', libtcod.orange)
   monster.char = '%'
