@@ -74,10 +74,11 @@ MAX_SCHEDULER_TICKS = 15
 
 #@+others
 #@+node:peckj.20130917090235.2664: ** classes
-#@+node:peckj.20130917090235.2654: *3* Object class
+#@+node:peckj.20130927083040.3222: *3* Game Objects
+#@+node:peckj.20130917090235.2654: *4* Object class
 class Object:
   #@+others
-  #@+node:peckj.20130917090235.2655: *4* __init__
+  #@+node:peckj.20130917090235.2655: *5* __init__
   def __init__(self, x, y, char, name, color, blocks=False, always_visible=False, player=None, fighter=None, actor=None, ai=None, item=None, equipment=None):
     self.blocks = blocks
     self.name = name
@@ -112,14 +113,14 @@ class Object:
     self.actor = actor
     if self.actor:
       self.actor.owner = self
-  #@+node:peckj.20130917090235.2656: *4* move
+  #@+node:peckj.20130917090235.2656: *5* move
   def move(self, dx, dy):
     newx = self.x + dx
     newy = self.y + dy
     if not is_blocked(newx, newy):
       self.x = newx
       self.y = newy
-  #@+node:peckj.20130918082920.2690: *4* move_towards
+  #@+node:peckj.20130918082920.2690: *5* move_towards
   def move_towards(self, target_x, target_y):
     # vector from this object to the target, and distance
     dx = target_x - self.x
@@ -131,35 +132,35 @@ class Object:
     dx = int(round(dx/distance))
     dy = int(round(dy/distance))
     self.move(dx, dy)
-  #@+node:peckj.20130918082920.2691: *4* distance_to
+  #@+node:peckj.20130918082920.2691: *5* distance_to
   def distance_to(self, other):
     # return the distance to another object
     dx = other.x - self.x
     dy = other.y - self.y
     return math.sqrt(dx ** 2 + dy ** 2)
-  #@+node:peckj.20130918082920.2728: *4* distance
+  #@+node:peckj.20130918082920.2728: *5* distance
   def distance(self, x, y):
     return math.sqrt((x - self.x) ** 2 + (y - self.y) ** 2)
-  #@+node:peckj.20130918082920.2696: *4* send_to_back
+  #@+node:peckj.20130918082920.2696: *5* send_to_back
   def send_to_back(self):
     global objects
     objects.remove(self)
     objects.insert(0, self)
-  #@+node:peckj.20130917090235.2657: *4* draw
+  #@+node:peckj.20130917090235.2657: *5* draw
   def draw(self):
     if libtcod.map_is_in_fov(fov_map, self.x, self.y) or (self.always_visible and map[self.x][self.y].explored):
       libtcod.console_set_default_foreground(con, self.color)
       libtcod.console_put_char(con, self.x, self.y, self.char, libtcod.BKGND_NONE)
-  #@+node:peckj.20130917090235.2658: *4* clear
+  #@+node:peckj.20130917090235.2658: *5* clear
   def clear(self):
     libtcod.console_put_char(con, self.x, self.y, ' ', libtcod.BKGND_NONE)
   #@-others
-#@+node:peckj.20130920123421.3482: *3* Component classes
-#@+node:peckj.20130920123421.3483: *4* AI components
-#@+node:peckj.20130918082920.2688: *5* BasicMonster class
+#@+node:peckj.20130920123421.3482: *4* Component classes
+#@+node:peckj.20130920123421.3483: *5* AI components
+#@+node:peckj.20130918082920.2688: *6* BasicMonster class
 class BasicMonster:
   #@+others
-  #@+node:peckj.20130918082920.2689: *6* take_turn
+  #@+node:peckj.20130918082920.2689: *7* take_turn
   def take_turn(self):
     monster = self.owner
     if libtcod.map_is_in_fov(fov_map, monster.x, monster.y):
@@ -169,14 +170,14 @@ class BasicMonster:
         monster.fighter.attack(player)
   #@-others
   
-#@+node:peckj.20130918082920.2723: *5* ConfusedMonster class
+#@+node:peckj.20130918082920.2723: *6* ConfusedMonster class
 class ConfusedMonster:
   #@+others
-  #@+node:peckj.20130918082920.2725: *6* __init__
+  #@+node:peckj.20130918082920.2725: *7* __init__
   def __init__(self, old_ai, num_turns=CONFUSE_NUM_TURNS):
     self.old_ai = old_ai
     self.num_turns = num_turns
-  #@+node:peckj.20130918082920.2724: *6* take_turn
+  #@+node:peckj.20130918082920.2724: *7* take_turn
   def take_turn(self):
     if self.num_turns > 0:
       self.owner.move(libtcod.random_get_int(0, -1, 1), libtcod.random_get_int(0, -1, 1))
@@ -186,18 +187,18 @@ class ConfusedMonster:
       message('The ' + self.owner.name + ' is no longer confused!', libtcod.red)
   #@-others
   
-#@+node:peckj.20130920123421.3477: *4* Player class
+#@+node:peckj.20130920123421.3477: *5* Player class
 class Player:
   #@+others
-  #@+node:peckj.20130920123421.3478: *5* __init__
+  #@+node:peckj.20130920123421.3478: *6* __init__
   def __init__(self, level=0):
     self.level = level
-  #@+node:peckj.20130920123421.3480: *5* check_level_up
+  #@+node:peckj.20130920123421.3480: *6* check_level_up
   def check_level_up(self):
     level_up_xp = LEVEL_UP_BASE + self.level * LEVEL_UP_FACTOR
     if self.owner.fighter.xp >= level_up_xp:
       self.level_up()
-  #@+node:peckj.20130920123421.3481: *5* level_up
+  #@+node:peckj.20130920123421.3481: *6* level_up
   def level_up(self):
     level_up_xp = LEVEL_UP_BASE + self.level * LEVEL_UP_FACTOR
     self.level += 1
@@ -219,10 +220,10 @@ class Player:
       player.fighter.base_defense += 1
   #@-others
   
-#@+node:peckj.20130918082920.2686: *4* Fighter class
+#@+node:peckj.20130918082920.2686: *5* Fighter class
 class Fighter:
   #@+others
-  #@+node:peckj.20130918082920.2687: *5* __init__
+  #@+node:peckj.20130918082920.2687: *6* __init__
   def __init__(self, hp, energy, hd=4, ed=4, hp_recovery=5, energy_recovery=5,
                defense=0, power=0, magic_resistance=0, magic=0, xp=0, death_function=None):
     # hp
@@ -252,7 +253,7 @@ class Fighter:
     # other
     self.xp = xp
     self.death_function = death_function
-  #@+node:peckj.20130918082920.2692: *5* take_damage
+  #@+node:peckj.20130918082920.2692: *6* take_damage
   def take_damage(self, damage):
     if damage > 0:
       self.hp -= damage
@@ -262,7 +263,7 @@ class Fighter:
         function(self.owner)
       if self.owner != player:
         player.fighter.xp += self.xp
-  #@+node:peckj.20130918082920.2693: *5* attack
+  #@+node:peckj.20130918082920.2693: *6* attack
   def attack(self, target):
     damage = self.power - target.fighter.defense
     if damage > 0:
@@ -270,63 +271,63 @@ class Fighter:
       target.fighter.take_damage(damage)
     else:
       message(self.owner.name.capitalize() + ' attacks ' + target.name + ' but it has no effect!')
-  #@+node:peckj.20130918082920.2712: *5* heal
+  #@+node:peckj.20130918082920.2712: *6* heal
   def heal(self, amount):
     self.hp += amount
     if self.hp > self.max_hp:
       self.hp = self.max_hp
-  #@+node:peckj.20130925095856.4431: *5* properties
-  #@+node:peckj.20130919090559.2754: *6* max_hp
+  #@+node:peckj.20130925095856.4431: *6* properties
+  #@+node:peckj.20130919090559.2754: *7* max_hp
   @property
   def max_hp(self):
     bonus = sum(equipment.max_hp_bonus for equipment in get_all_equipped(self.owner))
     return self.base_max_hp + bonus
-  #@+node:peckj.20130925095856.4435: *6* max_energy
+  #@+node:peckj.20130925095856.4435: *7* max_energy
   @property
   def max_energy(self):
     bonus = sum(equipment.max_energy_bonus for equipment in get_all_equipped(self.owner))
     return self.base_max_energy + bonus
-  #@+node:peckj.20130919090559.2751: *6* power
+  #@+node:peckj.20130919090559.2751: *7* power
   @property
   def power(self):
     bonus = sum(equipment.power_bonus for equipment in get_all_equipped(self.owner))
     return self.base_power + bonus
-  #@+node:peckj.20130919090559.2753: *6* defense
+  #@+node:peckj.20130919090559.2753: *7* defense
   @property
   def defense(self):
     bonus = sum(equipment.defense_bonus for equipment in get_all_equipped(self.owner))
     return self.base_defense + bonus
-  #@+node:peckj.20130925095856.4432: *6* magic
+  #@+node:peckj.20130925095856.4432: *7* magic
   @property
   def magic(self):
     bonus = sum(equipment.magic_bonus for equipment in get_all_equipped(self.owner))
     return self.base_magic + bonus
-  #@+node:peckj.20130925095856.4433: *6* magic_resistance
+  #@+node:peckj.20130925095856.4433: *7* magic_resistance
   @property
   def magic_resistance(self):
     bonus = sum(equipment.magic_resistance_bonus for equipment in get_all_equipped(self.owner))
     return self.base_magic_resistance + bonus
-  #@+node:peckj.20130925095856.4434: *6* hp_recovery
+  #@+node:peckj.20130925095856.4434: *7* hp_recovery
   @property
   def hp_recovery(self):
     bonus = sum(equipment.hp_recovery_bonus for equipment in get_all_equipped(self.owner))
     return self.base_hp_recovery + bonus
-  #@+node:peckj.20130925095856.4437: *6* energy_recovery
+  #@+node:peckj.20130925095856.4437: *7* energy_recovery
   @property
   def energy_recovery(self):
     bonus = sum(equipment.energy_recovery_bonus for equipment in get_all_equipped(self.owner))
     return self.base_energy_recovery + bonus
   #@-others
-#@+node:peckj.20130920123421.3487: *4* Actor class
+#@+node:peckj.20130920123421.3487: *5* Actor class
 class Actor:
   #@+others
-  #@+node:peckj.20130920123421.3488: *5* __init__
+  #@+node:peckj.20130920123421.3488: *6* __init__
   def __init__(self, speed=0, act_function=None, active=True, time=1):
     self.speed = speed
     self.active = active
     self.time = time
     self.act_function = act_function
-  #@+node:peckj.20130920123421.3489: *5* act
+  #@+node:peckj.20130920123421.3489: *6* act
   def act(self):
     function = self.act_function
     #print 'acting'
@@ -341,7 +342,7 @@ class Actor:
       self.time = scheduler.ticks + my_ticks
       #print "new time: %s" % self.time
     return result
-  #@+node:peckj.20130920123421.3492: *5* __cmp__
+  #@+node:peckj.20130920123421.3492: *6* __cmp__
   #@+at
   # def __cmp__(self, other):
   #   if self.time < other.time:
@@ -352,13 +353,13 @@ class Actor:
   #     return 1
   #@@c
   #@-others
-#@+node:peckj.20130918082920.2702: *4* Item class
+#@+node:peckj.20130918082920.2702: *5* Item class
 class Item:
   #@+others
-  #@+node:peckj.20130918082920.2707: *5* __init__
+  #@+node:peckj.20130918082920.2707: *6* __init__
   def __init__(self, use_function=None):
     self.use_function = use_function
-  #@+node:peckj.20130918082920.2703: *5* pick_up
+  #@+node:peckj.20130918082920.2703: *6* pick_up
   def pick_up(self):
     if len(inventory) >= 26:
       message('Your inventory is full, cannot pick up ' + self.owner.name + '.', libtcod.red)
@@ -369,7 +370,7 @@ class Item:
       equipment = self.owner.equipment
       if equipment and get_equipped_in_slot(equipment.slot) is None:
         equipment.equip()
-  #@+node:peckj.20130918082920.2731: *5* drop
+  #@+node:peckj.20130918082920.2731: *6* drop
   def drop(self):
     objects.append(self.owner)
     inventory.remove(self.owner)
@@ -378,7 +379,7 @@ class Item:
     message('You dropped a ' + self.owner.name + '.', libtcod.yellow)
     if self.owner.equipment:
       self.owner.equipment.dequip()
-  #@+node:peckj.20130918082920.2710: *5* use
+  #@+node:peckj.20130918082920.2710: *6* use
   def use(self):
     if self.owner.equipment:
       self.owner.equipment.toggle_equip()
@@ -390,10 +391,10 @@ class Item:
         inventory.remove(self.owner)
   #@-others
   
-#@+node:peckj.20130919090559.2745: *4* Equipment class
+#@+node:peckj.20130919090559.2745: *5* Equipment class
 class Equipment:
   #@+others
-  #@+node:peckj.20130919090559.2746: *5* __init__
+  #@+node:peckj.20130919090559.2746: *6* __init__
   def __init__(self, slot, power_bonus=0, defense_bonus=0, max_hp_bonus=0, max_energy_bonus=0,
                magic_bonus=0, magic_resistance_bonus=0, hp_recovery_bonus=0, energy_recovery_bonus=0):
     self.power_bonus = power_bonus
@@ -406,29 +407,30 @@ class Equipment:
     self.energy_recovery_bonus = energy_recovery_bonus
     self.slot = slot
     self.is_equipped = False
-  #@+node:peckj.20130919090559.2747: *5* toggle_equip
+  #@+node:peckj.20130919090559.2747: *6* toggle_equip
   def toggle_equip(self):
     if self.is_equipped:
       self.dequip()
     else:
       self.equip()
-  #@+node:peckj.20130919090559.2748: *5* equip
+  #@+node:peckj.20130919090559.2748: *6* equip
   def equip(self):
     old_equipment = get_equipped_in_slot(self.slot)
     if old_equipment is not None:
       old_equipment.dequip()
     self.is_equipped = True
     message('Equipped ' + self.owner.name + ' on ' + self.slot + '.', libtcod.light_green)
-  #@+node:peckj.20130919090559.2749: *5* dequip
+  #@+node:peckj.20130919090559.2749: *6* dequip
   def dequip(self):
     if not self.is_equipped: return
     self.is_equipped = False
     message('Dequipped ' + self.owner.name + ' from ' + self.slot + '.', libtcod.light_yellow)
   #@-others
-#@+node:peckj.20130917090235.2659: *3* Tile class
+#@+node:peckj.20130927083040.3223: *3* Mapping
+#@+node:peckj.20130917090235.2659: *4* Tile class
 class Tile:
   #@+others
-  #@+node:peckj.20130917090235.2660: *4* __init__
+  #@+node:peckj.20130917090235.2660: *5* __init__
   def __init__(self, blocked, block_sight = None):
     self.explored = False
     self.blocked = blocked
@@ -438,34 +440,35 @@ class Tile:
     self.block_sight = block_sight
   #@-others
   
-#@+node:peckj.20130917090235.2665: *3* Rect class
+#@+node:peckj.20130917090235.2665: *4* Rect class
 class Rect:
   #@+others
-  #@+node:peckj.20130917090235.2670: *4* __init__
+  #@+node:peckj.20130917090235.2670: *5* __init__
   def __init__(self, x, y, w, h):
     self.x1 = x
     self.y1 = y
     self.x2 = x + w
     self.y2 = y + h
-  #@+node:peckj.20130917090235.2675: *4* center
+  #@+node:peckj.20130917090235.2675: *5* center
   def center(self):
     center_x = (self.x1 + self.x2) / 2
     center_y = (self.y1 + self.y2) / 2
     return (center_x, center_y)
-  #@+node:peckj.20130917090235.2676: *4* intersect
+  #@+node:peckj.20130917090235.2676: *5* intersect
   def intersect(self, other):
     #returns true if this rectangle intersects with another one
     return (self.x1 <= other.x2 and self.x2 >= other.x1 and
             self.y1 <= other.y2 and self.y2 >= other.y1)
   #@-others
-#@+node:peckj.20130920123421.3484: *3* Scheduler class
+#@+node:peckj.20130927083040.3224: *3* Timing
+#@+node:peckj.20130920123421.3484: *4* Scheduler class
 class Scheduler:
   #@+others
-  #@+node:peckj.20130920123421.3485: *4* __init__
+  #@+node:peckj.20130920123421.3485: *5* __init__
   def __init__(self, schedule={}, ticks=-1L):
     self.schedule = schedule
     self.ticks = ticks
-  #@+node:peckj.20130920123421.3490: *4* tick
+  #@+node:peckj.20130920123421.3490: *5* tick
   def tick(self):
     actors = []
     while actors == []:
@@ -478,7 +481,7 @@ class Scheduler:
       while not r:
         r = a.act()
       self.push(a)
-  #@+node:peckj.20130920123421.3491: *4* push
+  #@+node:peckj.20130920123421.3491: *5* push
   def push(self, actor):
     self.schedule.setdefault(actor.time, []).append(actor)
   #@-others
@@ -1077,8 +1080,6 @@ def play_game():
     
     for object in objects:
       object.clear()
-    
-    #print "game state: %s" % game_state
     
     if game_state == 'playing-waiting-for-input' or game_state == 'dead':
       player_action = handle_keys()

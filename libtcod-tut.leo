@@ -11,24 +11,35 @@
 <find_panel_settings/>
 <vnodes>
 <v t="peckj.20130917090235.2648" a="E"
-expanded="peckj.20130917090235.2664,peckj.20130920123421.3482,peckj.20130918082920.2688,peckj.20130918082920.2723,peckj.20130918082920.2686,peckj.20130917090235.2666,peckj.20130918082920.2717,"><vh>@file game.py</vh></v>
+expanded="peckj.20130917090235.2650,peckj.20130917090235.2664,peckj.20130918082920.2688,peckj.20130918082920.2723,peckj.20130927083040.3224,peckj.20130920123421.3484,peckj.20130917090235.2666,peckj.20130918082920.2734,"><vh>@file game.py</vh></v>
 <v t="peckj.20130925095856.4438" a="E"><vh>Architecture docs</vh>
-<v t="peckj.20130925095856.4439" a="E"><vh>Objects</vh>
-<v t="peckj.20130925095856.4440" a="E"><vh>Components</vh>
-<v t="peckj.20130925095856.4441" a="E"><vh>Actor</vh>
+<v t="peckj.20130925095856.4439"><vh>Objects</vh>
+<v t="peckj.20130925095856.4440"><vh>Components</vh>
+<v t="peckj.20130925095856.4441"><vh>Actor</vh>
 <v t="peckj.20130925095856.4447"><vh>act_functions</vh></v>
 </v>
 <v t="peckj.20130925095856.4442"><vh>AI</vh></v>
 <v t="peckj.20130925095856.4443"><vh>Player</vh></v>
-<v t="peckj.20130925095856.4444" a="E"><vh>Fighter</vh>
+<v t="peckj.20130925095856.4444"><vh>Fighter</vh>
 <v t="peckj.20130925095856.4448"><vh>death_functions</vh></v>
 </v>
-<v t="peckj.20130925095856.4445" a="E"><vh>Item</vh>
+<v t="peckj.20130925095856.4445"><vh>Item</vh>
 <v t="peckj.20130925095856.4449"><vh>use_functions</vh></v>
 </v>
 <v t="peckj.20130925095856.4446"><vh>Equipment</vh></v>
 </v>
 </v>
+<v t="peckj.20130927083040.3214"><vh>Mapping classes</vh>
+<v t="peckj.20130927083040.3220"><vh>Tile</vh></v>
+<v t="peckj.20130927083040.3221"><vh>Rect</vh></v>
+</v>
+<v t="peckj.20130927083040.3215"><vh>Scheduler</vh></v>
+<v t="peckj.20130927083040.3217"><vh>Global Variables</vh>
+<v t="peckj.20130927083040.3218"><vh>Definitions</vh></v>
+<v t="peckj.20130927083040.3219"><vh>Dynamic Globals</vh></v>
+</v>
+<v t="peckj.20130927083040.3225"><vh>Helper functions</vh></v>
+<v t="peckj.20130927083040.3216"><vh>Combat</vh></v>
 </v>
 </vnodes>
 <tnodes>
@@ -212,6 +223,144 @@ A death_function is a global function which takes an object as a parameter.
 Typical actions are replacing the dying object with different characters,
 and deactivating the object's actor.
 </t>
-<t tx="peckj.20130925095856.4449"></t>
+<t tx="peckj.20130925095856.4449">Items have use_functions which define what the item does when used.
+
+The following use_functions are defined:
+
+# cast_heal()
+
+Heals player.fighter.hp by HEAL_AMOUNT.
+
+# cast_lightning()
+
+Deals LIGHTNING_DAMAGE points of damage to the closest enemy within LIGHTNING_RANGE.
+
+# cast_fireball()
+
+Asks the player for a target tile in which to ignite the fireball.  The fireball deals
+FIREBALL_DAMAGE to all objects within FIREBALL_RADIUS of the target tile, including the 
+player.
+
+# cast_confuse()
+
+Asks the player to target a monster within CONFUSE_RANGE.  Targeted monster's ai is replaced
+with ConfusedMonster for CONFUSE_NUM_TURNS turns.
+
+# Building a use_function
+
+A use_function is a global function with no parameters.  It often operates on the objects list, and
+occasionally requires input from the player.</t>
+<t tx="peckj.20130927083040.3214"></t>
+<t tx="peckj.20130927083040.3215">The Scheduler class is used to keep everything organized in a time-based manner.  It wraps
+a dictionary composed of entries like {some_time_integer: [some_actor_to_act, some_other_actor_to_act]}.
+
+# Fields
+scheduler.ticks       -&gt; The current time of the scheduler, expressed as an integer.
+scheduler.schedule    -&gt; The scheduler's map.
+
+# Methods
+scheduler.push(actor) -&gt; Pushes the actor into scheduler.schedule, at actor.time.
+scheduler.tick()      -&gt; Finds the next tick with actors scheduled, pops that list off of scheduler.schedule,
+                         and iterates through the list, calling actor.act() on each actor.  Will retry an
+                         actor's act() until it returns True.  Afterwards, it reschedules that actor with a call
+                         to scheduler.push(actor).</t>
+<t tx="peckj.20130927083040.3216"></t>
+<t tx="peckj.20130927083040.3217"></t>
+<t tx="peckj.20130927083040.3218">The following definitions are needed for the game to operate:
+
+# Screen stuff
+SCREEN_WIDTH
+SCREEN_HEIGHT
+LIMIT_FPS
+
+# Map size
+MAP_WIDTH
+MAP_HEIGHT
+
+# color scheme
+color_dark_wall
+color_light_wall
+color_dark_ground
+color_light_ground
+
+# dungeon generation
+ROOM_MAX_SIZE
+ROOM_MIN_SIZE
+MAX_ROOMS
+
+# FOV stuff
+FOV_ALGO
+FOV_LIGHT_WALLS
+TORCH_RADIUS
+
+# Panel stuff
+BAR_WIDTH
+PANEL_HEIGHT
+PANEL_Y
+
+# Message Bar stuff
+MSG_X
+MSG_WIDTH
+MSG_HEIGHT
+
+# Inventory stuff
+INVENTORY_WIDTH
+
+# spells/scrolls/items
+HEAL_AMOUNT
+LIGHTNING_DAMAGE
+LIGHTNING_RANGE
+CONFUSE_NUM_TURNS
+CONFUSE_RANGE
+FIREBALL_DAMAGE
+FIREBALL_RADIUS
+
+# character advancement
+LEVEL_UP_BASE = 200
+LEVEL_UP_FACTOR = 150
+LEVEL_SCREEN_WIDTH = 40
+CHARACTER_SCREEN_WIDTH = 30
+
+# scheduler stuff
+MAX_SCHEDULER_TICKS = 15
+</t>
+<t tx="peckj.20130927083040.3219">The following globals contain important game information:
+
+player        -&gt; the player object (also in objects)
+objects       -&gt; list of game objects on the current level
+game_state    -&gt; a string representing the state of the game
+  valid game_state values:
+    'playing'
+    'playing-waiting-for-input'
+    'dead'
+game_msgs     -&gt; a list of strings in the message buffer
+dungeon_level -&gt; current level of the dungeon
+stairs        -&gt; the stairs object (also in objects)
+scheduler     -&gt; the scheduler object
+key           -&gt; object representing keyboard events
+mouse         -&gt; object representing mouse events
+con           -&gt; off-screen console for the map portion of the interface
+panel         -&gt; off-screen console for the information portion of the interface</t>
+<t tx="peckj.20130927083040.3220">Tiles are representations of a cell of the game map.
+
+# Fields
+
+tile.blocked     -&gt; Boolean: True if tile blocks movement (i.e. walls)
+tile.block_sight -&gt; Boolean: True if tile blocks sight
+tile.explored    -&gt; Boolean: True if tile has been explored</t>
+<t tx="peckj.20130927083040.3221">A Rect is a simple representation of a rectangle.  They're used to build rooms
+in the map maker.
+
+# Fields
+rect.x1 -&gt; Upper left x
+rect.y1 -&gt; Upper left y
+rect.x2 -&gt; Lower right x
+rect.y2 -&gt; Lower right y
+
+# Methods
+rect.center()              -&gt; Returns the center of the rectangle as a tuple (x, y)
+rect.intersect(other_rect) -&gt; Returns True if rect intersects with other_rect
+</t>
+<t tx="peckj.20130927083040.3225"></t>
 </tnodes>
 </leo_file>
